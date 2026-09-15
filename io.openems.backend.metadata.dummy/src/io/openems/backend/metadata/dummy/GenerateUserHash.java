@@ -17,7 +17,7 @@ import java.util.List;
  *       polli "Polli" owner
  * </pre>
  *
- * Prompts for the password on the terminal (never takes it as an argv, so it
+ * <p>Prompts for the password on the terminal (never takes it as an argv, so it
  * does not end up in shell history or `ps`), then prints the JSON snippet to
  * paste into users.json under "users".
  */
@@ -40,7 +40,7 @@ public final class GenerateUserHash {
 			System.exit(1);
 		}
 		var username = args[0];
-		var displayName = args[1];
+		final var displayName = args[1];
 		var role = args[2].toLowerCase();
 		if (!VALID_ROLES.contains(role)) {
 			System.err.println("Role must be one of " + VALID_ROLES + ", got: " + args[2]);
