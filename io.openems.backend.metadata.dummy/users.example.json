@@ -1,0 +1,18 @@
+{
+  "users": {
+    "admin": {
+      "name": "Administrator",
+      "role": "admin",
+      "salt": "REPLACE_ME_BASE64_SALT",
+      "hash": "REPLACE_ME_BASE64_PBKDF2_HASH",
+      "iterations": 210000
+    },
+    "operator": {
+      "name": "Example Operator",
+      "role": "owner",
+      "salt": "XeISFCgc2YM7R4suuggZQw==",
+      "hash": "CpM/TjMbzoNIlsImRonGJT5nFSiwDLLRZynK720mWyc=",
+      "iterations": 210000
+    }
+  }
+}

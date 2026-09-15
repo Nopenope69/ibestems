@@ -2,10 +2,14 @@ package io.openems.backend.metadata.dummy;
 
 import static java.util.stream.Collectors.joining;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -28,6 +32,7 @@ import org.osgi.service.metatype.annotations.Designate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import io.openems.backend.common.alerting.OfflineEdgeAlertingSetting;
@@ -49,8 +54,25 @@ import io.openems.common.jsonrpc.request.GetEdgesRequest.PaginationOptions;
 import io.openems.common.jsonrpc.response.GetEdgesResponse.EdgeMetadata;
 import io.openems.common.session.Language;
 import io.openems.common.session.Role;
+import io.openems.common.utils.JsonUtils;
 import io.openems.common.utils.ThreadPoolUtils;
 
+/**
+ * This Metadata provider keeps the original "Dummy" behaviour for Edges
+ * (auto-provisions Edge-IDs/API-keys, no external DB), but real,
+ * password-checked authentication for UI/API logins - see B-001 in the
+ * 2026-09-11 commercialization audit.
+ *
+ * <p>
+ * Login credentials are NOT hard-coded and NOT accepted unconditionally: they
+ * are read from the JSON file at {@link Config#usersPath()} (see
+ * users.example.json), matched by username, and verified with
+ * {@link PasswordHash} (PBKDF2WithHmacSHA256, per-user salt). A wrong
+ * username or password is rejected with
+ * {@code OpenemsError.COMMON_AUTHENTICATION_FAILED}, same as every other
+ * Metadata provider. The file is re-read on every login attempt so adding or
+ * removing a user does not require a Backend restart.
+ */
 @Designate(ocd = Config.class, factory = false)
 @Component(//
 		name = "Metadata.Dummy", //
@@ -68,7 +90,6 @@ public class MetadataDummy extends AbstractMetadata implements Metadata, EventHa
 
 	private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
 	private final EventAdmin eventAdmin;
-	private final AtomicInteger nextUserId = new AtomicInteger(-1);
 	private final AtomicInteger nextEdgeId = new AtomicInteger(-1);
 
 	private final Map<String, User> users = new HashMap<>();
@@ -78,11 +99,35 @@ public class MetadataDummy extends AbstractMetadata implements Metadata, EventHa
 	private Language defaultLanguage = Language.DE;
 	private JsonObject settings = new JsonObject();
 
+	private String usersPath = "";
+
+	/**
+	 * One entry from the users file: everything needed to verify a login and
+	 * mint a {@link User} with the right Role. Never holds a plaintext
+	 * password.
+	 */
+	private static final class StoredCredential {
+		final String name;
+		final Role role;
+		final String salt;
+		final String hash;
+		final int iterations;
+
+		StoredCredential(String name, Role role, String salt, String hash, int iterations) {
+			this.name = name;
+			this.role = role;
+			this.salt = salt;
+			this.hash = hash;
+			this.iterations = iterations;
+		}
+	}
+
 	@Activate
 	public MetadataDummy(@Reference EventAdmin eventadmin, Config config) {
 		super("Metadata.Dummy");
 		this.eventAdmin = eventadmin;
-		this.logInfo(this.log, "Activate");
+		this.usersPath = config.usersPath();
+		this.logInfo(this.log, "Activate [usersPath=" + this.usersPath + "]");
 
 		// Prefill
 		this.logInfo(this.log, "Prefilling Edges [" //
@@ -107,11 +152,19 @@ public class MetadataDummy extends AbstractMetadata implements Metadata, EventHa
 
 	@Override
 	public User authenticate(String username, String password) throws OpenemsNamedException {
-		var name = "User #" + this.nextUserId.incrementAndGet();
+		var credentials = this.loadCredentials();
+		var cred = credentials.get(username);
+		if (cred == null || !PasswordHash.verify(password, cred.salt, cred.iterations, cred.hash)) {
+			// Deliberately the same error for "no such user" and "wrong password" -
+			// do not let a caller enumerate valid usernames.
+			this.logWarn(this.log, "Rejected login for username [" + username + "]");
+			throw OpenemsError.COMMON_AUTHENTICATION_FAILED.exception();
+		}
 		var token = UUID.randomUUID().toString();
-		var user = new User(username, name, token, this.defaultLanguage, Role.ADMIN, this.hasMultipleEdges(),
+		var user = new User(username, cred.name, token, this.defaultLanguage, cred.role, this.hasMultipleEdges(),
 				this.settings);
 		this.users.put(user.getId(), user);
+		this.logInfo(this.log, "Authenticated [" + username + "] as [" + cred.role + "]");
 		return user;
 	}
 
@@ -125,7 +178,8 @@ public class MetadataDummy extends AbstractMetadata implements Metadata, EventHa
 			final User returnUser;
 			if (user.hasMultipleEdges() != hasMultipleEdges //
 					|| !user.getSettings().equals(this.settings)) {
-				returnUser = this.createUser(user.getId(), user.getName(), user.getToken(), hasMultipleEdges);
+				returnUser = this.createUser(user.getId(), user.getName(), user.getToken(), user.getGlobalRole(),
+						hasMultipleEdges);
 				this.users.put(token, returnUser);
 			} else {
 				returnUser = user;
@@ -136,13 +190,59 @@ public class MetadataDummy extends AbstractMetadata implements Metadata, EventHa
 		throw OpenemsError.COMMON_AUTHENTICATION_FAILED.exception();
 	}
 
-	private User createUser(String username, String name, String token, boolean hasMultipleEdges) {
-		return new User(username, name, token, this.defaultLanguage, Role.ADMIN, this.hasMultipleEdges(),
+	private User createUser(String username, String name, String token, Role globalRole, boolean hasMultipleEdges) {
+		return new User(username, name, token, this.defaultLanguage, globalRole, this.hasMultipleEdges(),
 				this.settings);
 	}
 
 	private boolean hasMultipleEdges() {
 		return this.edges.size() > 1;
+	}
+
+	/**
+	 * Reads and parses {@link #usersPath}. Re-read on every call (logins are
+	 * infrequent) so editing the file takes effect without a restart. Returns
+	 * an empty map - i.e. every login is rejected - if the file is missing or
+	 * malformed, rather than falling back to any default identity.
+	 *
+	 * @return username -> {@link StoredCredential}
+	 */
+	private Map<String, StoredCredential> loadCredentials() {
+		var result = new HashMap<String, StoredCredential>();
+		if (this.usersPath == null || this.usersPath.isBlank()) {
+			this.logWarn(this.log, "No usersPath configured - all logins will be rejected");
+			return result;
+		}
+
+		var sb = new StringBuilder();
+		try (var br = new BufferedReader(new FileReader(this.usersPath))) {
+			String line;
+			while ((line = br.readLine()) != null) {
+				sb.append(line);
+			}
+		} catch (IOException e) {
+			this.logWarn(this.log, "Unable to read users file [" + this.usersPath + "]: " + e.getMessage());
+			return result;
+		}
+
+		try {
+			var root = JsonUtils.parse(sb.toString());
+			var jUsers = JsonUtils.getAsJsonObject(root, "users");
+			for (Entry<String, JsonElement> entry : jUsers.entrySet()) {
+				var username = entry.getKey();
+				var jUser = JsonUtils.getAsJsonObject(entry.getValue());
+				var name = JsonUtils.getAsOptionalString(jUser, "name").orElse(username);
+				var role = Role.getRole(JsonUtils.getAsString(jUser, "role"));
+				var salt = JsonUtils.getAsString(jUser, "salt");
+				var hash = JsonUtils.getAsString(jUser, "hash");
+				var iterations = JsonUtils.getAsInt(jUser, "iterations");
+				result.put(username, new StoredCredential(name, role, salt, hash, iterations));
+			}
+		} catch (OpenemsNamedException e) {
+			this.logWarn(this.log, "Unable to JSON-parse users file [" + this.usersPath + "]: " + e.getMessage());
+			return new HashMap<>();
+		}
+		return result;
 	}
 
 	@Override
@@ -339,14 +439,18 @@ public class MetadataDummy extends AbstractMetadata implements Metadata, EventHa
 		if (edge == null) {
 			return null;
 		}
-		user.setRole(edgeId, Role.ADMIN);
+		// Use the User's own verified global Role - do NOT hand out ADMIN
+		// regardless of who they are (this was the other half of B-001: even a
+		// correctly-authenticated non-admin user was silently upgraded here).
+		var role = user.getGlobalRole();
+		user.setRole(edgeId, role);
 
 		return new EdgeMetadata(//
 				edge.getId(), //
 				edge.getComment(), //
 				edge.getProducttype(), //
 				edge.getVersion(), //
-				Role.ADMIN, //
+				role, //
 				edge.isOnline(), //
 				edge.getLastmessage(), //
 				null, // firstSetupProtocol
