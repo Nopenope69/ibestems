@@ -10,6 +10,8 @@ import static org.osgi.service.component.annotations.ReferencePolicyOption.GREED
 
 import static java.util.Collections.emptyMap;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.osgi.service.component.ComponentContext;
@@ -24,9 +26,6 @@ import org.osgi.service.event.propertytypes.EventTopics;
 import org.osgi.service.metatype.annotations.Designate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
 
 import io.openems.common.bridge.http.api.BridgeHttp;
 import io.openems.common.bridge.http.api.BridgeHttpFactory;
@@ -79,10 +78,20 @@ public class EssPylontechRs485Impl extends AbstractOpenemsComponent
 	private Config config;
 	private BridgeHttp httpBridge;
 	private HttpBridgeCycleService cycleService;
-	private boolean bridgeError = false;
+	private volatile boolean bridgeError = false;
+	private boolean communicationFailed = false;
 
-	/** Latest JSON payload from the bridge, updated asynchronously. */
-	private final AtomicReference<JsonObject> latestState = new AtomicReference<>(null);
+	/**
+	 * Latest successfully converted reading and when it arrived, updated from the
+	 * HTTP bridge thread and read on the cycle thread. Kept as one immutable
+	 * pair so the cycle never sees a reading with another reading's timestamp.
+	 */
+	private record Timestamped(BridgeReading reading, Instant receivedAt) {
+	}
+
+	private final AtomicReference<Timestamped> latest = new AtomicReference<>(null);
+
+	private Instant activatedAt = Instant.now();
 
 	private final CalculateEnergyFromPower calculateChargeEnergy =
 			new CalculateEnergyFromPower(this, SymmetricEss.ChannelId.ACTIVE_CHARGE_ENERGY);
@@ -104,6 +113,7 @@ public class EssPylontechRs485Impl extends AbstractOpenemsComponent
 	private void activate(ComponentContext context, Config config) {
 		super.activate(context, config.id(), config.alias(), config.enabled());
 		this.config = config;
+		this.activatedAt = Instant.now();
 
 		this._setMaxApparentPower(config.maxApparentPower());
 		this._setCapacity(config.capacityWh());
@@ -151,7 +161,9 @@ public class EssPylontechRs485Impl extends AbstractOpenemsComponent
 				this.bridgeError = true;
 				return;
 			}
-			this.latestState.set(json.getAsJsonObject());
+			// Convert here, not on the cycle thread: a malformed payload is a
+			// bridge error now, rather than an exception inside handleEvent later.
+			this.latest.set(new Timestamped(BridgeReading.fromBridgeJson(json.getAsJsonObject()), Instant.now()));
 			this.bridgeError = false;
 		} catch (Exception e) {
 			this.logWarn(this.log, "Bridge JSON parse error: " + e.getMessage());
@@ -180,57 +192,50 @@ public class EssPylontechRs485Impl extends AbstractOpenemsComponent
 	}
 
 	private void updateChannelsFromBridge() {
-		JsonObject state = this.latestState.get();
-		if (state == null) {
-			return;
-		}
+		var current = this.latest.get();
+		var now = Instant.now();
+		var window = Duration.ofSeconds(this.config.staleAfterSeconds());
 
-		// SoC
-		if (state.has("soc_pct")) {
-			this._setSoc(state.get("soc_pct").getAsInt());
-		}
+		// No reading yet, or an expired one: allow nothing, report nothing.
+		// Previously the last payload was held forever, so a dead bridge kept
+		// advertising its last charge/discharge limits to the Power solver.
+		var usable = current != null && Duration.between(current.receivedAt(), now).compareTo(window) <= 0;
+		var reading = usable ? current.reading() : BridgeReading.UNAVAILABLE;
 
-		// Voltage for power limit calculation
-		double voltageV = state.has("voltage_V") ? state.get("voltage_V").getAsDouble() : 48.0;
+		// The FAULT is only raised once the window has elapsed since the last
+		// reading, or since activation if none has ever arrived — so a normal
+		// start-up (first poll is up to pollCycles away) is not a fault.
+		var since = current != null ? current.receivedAt() : this.activatedAt;
+		var failed = !usable && Duration.between(since, now).compareTo(window) > 0;
+		this.communicationFailed = failed;
+		this.channel(EssPylontechRs485.ChannelId.BRIDGE_COMMUNICATION_FAILED).setNextValue(failed);
 
-		// Charge / discharge enable flags
-		boolean chargeEnable    = !state.has("charge_enable")    || state.get("charge_enable").getAsBoolean();
-		boolean dischargeEnable = !state.has("discharge_enable") || state.get("discharge_enable").getAsBoolean();
-
-		// Current limits from BMS
-		double maxChargeA    = state.has("max_charge_current_A")
-				? state.get("max_charge_current_A").getAsDouble() : 0;
-		double maxDischargeA = state.has("max_discharge_current_A")
-				? state.get("max_discharge_current_A").getAsDouble() : 0;
-
-		// Power limits (W); OpenEMS: charge = negative, discharge = positive
-		int allowedCharge    = chargeEnable    ? (int) (voltageV * maxChargeA)    : 0;
-		int allowedDischarge = dischargeEnable ? (int) (voltageV * maxDischargeA) : 0;
-
-		this.channel(ManagedSymmetricEss.ChannelId.ALLOWED_CHARGE_POWER).setNextValue(-allowedCharge);
-		this.channel(ManagedSymmetricEss.ChannelId.ALLOWED_DISCHARGE_POWER).setNextValue(allowedDischarge);
-
-		// Active power from bridge (W); negative = charging
-		if (state.has("power_W")) {
-			this._setActivePower(state.get("power_W").getAsInt());
-		}
-
-		this._setReactivePower(0);
+		this._setSoc(reading.socPct());
+		this._setActivePower(reading.activePowerW());
+		this.channel(ManagedSymmetricEss.ChannelId.ALLOWED_CHARGE_POWER).setNextValue(reading.allowedChargePowerW());
+		this._setAllowedDischargePower(reading.allowedDischargePowerW());
+		this._setReactivePower(reading.activePowerW() == null ? null : 0);
 	}
 
 	private void calculateEnergy() {
-		this.calculateChargeEnergy.update(this.getActivePower().orElse(null));
-		this.calculateDischargeEnergy.update(this.getActivePower().orElse(null));
+		// Each counter gets its own non-negative side of the signed power, as
+		// upstream's simulators do. Passing the signed value to both made
+		// ActiveChargeEnergy count discharges and never count a charge.
+		var activePower = this.getActivePower().get();
+		this.calculateChargeEnergy.update(BridgeReading.chargePower(activePower));
+		this.calculateDischargeEnergy.update(BridgeReading.dischargePower(activePower));
 	}
 
 	// ── ManagedSymmetricEss ───────────────────────────────────────────────────
 
 	@Override
 	public void applyPower(int activePower, int reactivePower) throws OpenemsNamedException {
-		// Phase 1 (simulator): record setpoint only.
-		// Phase 2 (hardware): POST to pylon_bridge.py /battery/power
-		this._setActivePower(activePower);
-		this._setReactivePower(reactivePower);
+		// Phase 1: pylon_bridge.py has no write endpoint, so the setpoint is
+		// recorded but NOT executed. It goes to the DEBUG channel, not to
+		// ActivePower: ActivePower is the measured value from the BMS, and
+		// overwriting it with the setpoint made every command look obeyed.
+		// Phase 2 (hardware with a PCS): forward to the PCS, not to the BMS.
+		this.getDebugSetActivePowerChannel().setNextValue(activePower);
 	}
 
 	@Override
@@ -275,6 +280,7 @@ public class EssPylontechRs485Impl extends AbstractOpenemsComponent
 				+ "|P:" + this.getActivePower().orElse(null) + "W"
 				+ "|Chg:" + this.getAllowedChargePower().orElse(null) + "W"
 				+ "|Dis:" + this.getAllowedDischargePower().orElse(null) + "W"
-				+ (this.bridgeError ? "|BridgeERR" : "");
+				+ (this.bridgeError ? "|BridgeERR" : "")
+				+ (this.communicationFailed ? "|STALE" : "");
 	}
 }
