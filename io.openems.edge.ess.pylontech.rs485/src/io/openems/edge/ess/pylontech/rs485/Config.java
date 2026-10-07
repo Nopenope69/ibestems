@@ -23,6 +23,10 @@ import org.osgi.service.metatype.annotations.ObjectClassDefinition;
 	@AttributeDefinition(name = "Poll every N cycles", description = "How often to query the bridge (1 cycle ≈ 1 s)")
 	int pollCycles() default 5;
 
+	@AttributeDefinition(name = "Stale after [s]", description = "With no valid bridge reading for this long, "
+			+ "the ESS reports a fault, clears SoC/ActivePower and allows 0 W either way")
+	int staleAfterSeconds() default 15;
+
 	@AttributeDefinition(name = "Battery capacity [Wh]")
 	int capacityWh() default 5000;
 
