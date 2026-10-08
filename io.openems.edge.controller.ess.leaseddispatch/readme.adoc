@@ -1,0 +1,22 @@
+= ESS Leased Dispatch
+
+Makes the edge the arbiter between redundant (leader/standby) dispatch pollers.
+
+A poller asks for a *dispatch lease* through the component JSON-RPC API
+(`leaseDispatch {holder, activePowerW?, reactivePowerVar?}`). The edge grants it when no other
+holder has a live lease, applies the holder's setpoints itself on every cycle, and ignores the
+setpoints of any other requester. A deposed poller therefore cannot move the battery, whatever it
+believes. When the lease expires (`leaseTimeoutSeconds`, edge monotonic clock) without renewal,
+nothing is applied and the battery returns to idle — so a dual poller failure releases the plant.
+
+* Sign: positive active power = discharge (OpenEMS convention, EMS-ADDONS ADR-0001).
+* Schedule manual controllers (`Controller.Ess.FixActivePower`, `Controller.Symmetric.FixReactivePower`)
+  *before* this controller so operator manual power keeps priority.
+* Channels: `Holder`, `Epoch` (increments on every change of holder), `LeaseActive`,
+  `AppliedActivePower`, `AppliedReactivePower`.
+
+Tests: `DispatchLeaseTest` (lease rules) and `ControllerEssLeasedDispatchImplTest` (the component
+through the OpenEMS `ControllerTest` harness and the real JSON-API routes). Both were compiled and
+run with `javac` + JUnit directly because Gradle could not reach Maven Central from the development
+sandbox; run `./gradlew :io.openems.edge.controller.ess.leaseddispatch:build` (which also runs the
+OSGi annotation processing and bnd checks) before deploying.
