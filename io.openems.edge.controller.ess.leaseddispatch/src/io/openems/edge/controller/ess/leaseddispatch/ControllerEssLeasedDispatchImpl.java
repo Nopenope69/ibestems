@@ -38,6 +38,9 @@ import io.openems.edge.ess.api.ManagedSymmetricEss;
  * <ul>
  * <li>{@code leaseDispatch {holder, activePowerW?, reactivePowerVar?}} →
  * {@code {granted, holder, epoch, expiresInMillis}}
+ * <li>{@code yieldDispatch {holder}} → {@code {yielded}} — planned hand-over:
+ * the holder's setpoints stay applied until another poller's next request,
+ * which is granted at once (no idle gap)
  * <li>{@code releaseDispatch {holder}} → {@code {released}}
  * </ul>
  *
@@ -139,6 +142,16 @@ public class ControllerEssLeasedDispatchImpl extends AbstractOpenemsComponent
 			result.addProperty("holder", r.holder());
 			result.addProperty("epoch", r.epoch());
 			result.addProperty("expiresInMillis", r.expiresInMillis());
+			return new GenericJsonrpcResponseSuccess(call.getRequest().getId(), result);
+		});
+		builder.handleRequest("yieldDispatch", call -> {
+			final var holder = requiredString(call.getRequest().getParams(), "holder");
+			final boolean yielded;
+			synchronized (this) {
+				yielded = this.lease.yieldTo(holder, nowMillis());
+			}
+			final var result = new JsonObject();
+			result.addProperty("yielded", yielded);
 			return new GenericJsonrpcResponseSuccess(call.getRequest().getId(), result);
 		});
 		builder.handleRequest("releaseDispatch", call -> {

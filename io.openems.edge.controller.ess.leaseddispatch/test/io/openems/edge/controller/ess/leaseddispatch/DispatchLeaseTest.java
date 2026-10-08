@@ -81,4 +81,40 @@ class DispatchLeaseTest {
 		assertThrows(IllegalArgumentException.class, () -> new DispatchLease(0));
 		assertThrows(IllegalArgumentException.class, () -> new DispatchLease(1).request(" ", 0, null, 0));
 	}
+
+	@Test
+	void yieldHandsOverWithoutAGap() {
+		var l = new DispatchLease(30_000);
+		l.request("ems-a", 10_000, 1_000, 0);
+		assertFalse(l.yieldTo("ems-b", 5_000)); // only the holder can yield
+		assertTrue(l.yieldTo("ems-a", 5_000));
+		// still applied: no idle moment between the yield and the takeover
+		assertEquals(10_000, l.activePowerToApply(7_000));
+		assertTrue(l.isYielding(7_000));
+		var b = l.request("ems-b", 9_500, null, 8_000);
+		assertTrue(b.granted());
+		assertEquals(2, b.epoch());
+		assertEquals(9_500, l.activePowerToApply(8_000));
+		assertFalse(l.isYielding(8_000));
+		// the yielder, if it comes back, is fenced like any other
+		assertFalse(l.request("ems-a", 0, null, 9_000).granted());
+	}
+
+	@Test
+	void holderThatRenewsRetractsItsYield() {
+		var l = new DispatchLease(30_000);
+		l.request("ems-a", 10_000, null, 0);
+		l.yieldTo("ems-a", 1_000);
+		assertTrue(l.request("ems-a", 10_000, null, 2_000).granted());
+		assertFalse(l.request("ems-b", 0, null, 3_000).granted());
+	}
+
+	@Test
+	void yieldedLeaseStillExpires() {
+		var l = new DispatchLease(30_000);
+		l.request("ems-a", 10_000, null, 0);
+		l.yieldTo("ems-a", 1_000);
+		assertNull(l.activePowerToApply(30_000));
+		assertFalse(l.yieldTo("ems-a", 30_000));
+	}
 }

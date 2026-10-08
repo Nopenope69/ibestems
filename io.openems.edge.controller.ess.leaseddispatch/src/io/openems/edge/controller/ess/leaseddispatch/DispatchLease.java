@@ -40,6 +40,7 @@ public final class DispatchLease {
 	private long expiresAtMillis = Long.MIN_VALUE;
 	private Integer activePowerW = null;
 	private Integer reactivePowerVar = null;
+	private boolean yielding = false;
 
 	public DispatchLease(long ttlMillis) {
 		if (ttlMillis <= 0) {
@@ -63,13 +64,14 @@ public final class DispatchLease {
 			throw new IllegalArgumentException("requester is required");
 		}
 		final var live = this.holder != null && nowMillis < this.expiresAtMillis;
-		if (live && !this.holder.equals(requester)) {
+		if (live && !this.holder.equals(requester) && !this.yielding) {
 			return new Result(false, this.holder, this.epoch, this.expiresAtMillis - nowMillis);
 		}
 		if (!requester.equals(this.holder)) {
 			this.holder = requester;
 			this.epoch++;
 		}
+		this.yielding = false; // a holder that renews takes back its yield
 		this.expiresAtMillis = nowMillis + this.ttlMillis;
 		this.activePowerW = activePowerW;
 		this.reactivePowerVar = reactivePowerVar;
@@ -82,6 +84,35 @@ public final class DispatchLease {
 	 * @param requester the poller's identity
 	 * @return true if it was the holder
 	 */
+	/**
+	 * The holder hands over WITHOUT a gap: its setpoints stay applied until the
+	 * lease would expire anyway, but the next request from any other poller is
+	 * granted at once. Used for a planned stop (rolling upgrade), where
+	 * {@link #release(String)} would leave the battery idle until the standby's
+	 * next tick.
+	 *
+	 * @param requester the poller asking
+	 * @param nowMillis edge monotonic time
+	 * @return true if the requester held a live lease
+	 */
+	public boolean yieldTo(String requester, long nowMillis) {
+		if (requester == null || !requester.equals(this.holder) || !this.isLive(nowMillis)) {
+			return false;
+		}
+		this.yielding = true;
+		return true;
+	}
+
+	/**
+	 * Whether the live lease has been yielded.
+	 *
+	 * @param nowMillis edge monotonic time
+	 * @return true while a yielded lease is still live
+	 */
+	public boolean isYielding(long nowMillis) {
+		return this.yielding && this.isLive(nowMillis);
+	}
+
 	public boolean release(String requester) {
 		if (requester == null || !requester.equals(this.holder)) {
 			return false;

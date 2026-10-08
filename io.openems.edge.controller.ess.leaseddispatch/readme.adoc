@@ -12,6 +12,8 @@ nothing is applied and the battery returns to idle — so a dual poller failure 
 * Sign: positive active power = discharge (OpenEMS convention, EMS-ADDONS ADR-0001).
 * Schedule manual controllers (`Controller.Ess.FixActivePower`, `Controller.Symmetric.FixReactivePower`)
   *before* this controller so operator manual power keeps priority.
+* `yieldDispatch {holder}` hands over without a gap (planned stop, rolling upgrade): the
+  holder's setpoints stay applied until another poller's next request, which is granted at once.
 * Channels: `Holder`, `Epoch` (increments on every change of holder), `LeaseActive`,
   `AppliedActivePower`, `AppliedReactivePower`.
 

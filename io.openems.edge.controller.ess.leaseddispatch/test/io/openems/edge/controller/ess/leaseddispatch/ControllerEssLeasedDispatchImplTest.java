@@ -86,4 +86,29 @@ class ControllerEssLeasedDispatchImplTest {
 				.output(APPLIED_ACTIVE_POWER, -9000));
 		test.deactivate();
 	}
+
+	@Test
+	void testYieldHandsOverWithoutAGap() throws Exception {
+		final var sut = new ControllerEssLeasedDispatchImpl();
+		final var routes = new JsonApiBuilder();
+		final var test = new ControllerTest(sut) //
+				.addReference("ess", new DummyManagedSymmetricEss("ess0")) //
+				.activate(MyConfig.create() //
+						.setId("ctrlLeasedDispatch0") //
+						.setEssId("ess0") //
+						.setLeaseTimeoutSeconds(30) //
+						.build());
+		sut.buildJsonApiRoutes(routes);
+		assertTrue(call(routes, "leaseDispatch", lease("poller-a", 5000, null)).get("granted").getAsBoolean());
+		assertTrue(call(routes, "yieldDispatch", lease("poller-a", null, null)).get("yielded").getAsBoolean());
+		// Yielded but still applied: the battery is never left uncommanded.
+		test.next(new TestCase() //
+				.output(LEASE_ACTIVE, true) //
+				.output(APPLIED_ACTIVE_POWER, 5000));
+		assertTrue(call(routes, "leaseDispatch", lease("poller-b", 4800, null)).get("granted").getAsBoolean());
+		test.next(new TestCase() //
+				.output(HOLDER, "poller-b") //
+				.output(APPLIED_ACTIVE_POWER, 4800));
+		test.deactivate();
+	}
 }
