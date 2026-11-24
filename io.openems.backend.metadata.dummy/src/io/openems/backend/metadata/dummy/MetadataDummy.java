@@ -2,6 +2,7 @@ package io.openems.backend.metadata.dummy;
 
 import static java.util.stream.Collectors.joining;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -31,6 +32,8 @@ import org.slf4j.LoggerFactory;
 
 import com.google.gson.JsonObject;
 
+import io.openems.backend.authentication.api.AuthUserPasswordAuthenticationService;
+import io.openems.backend.authentication.api.model.PasswordAuthenticationResult;
 import io.openems.backend.common.alerting.OfflineEdgeAlertingSetting;
 import io.openems.backend.common.alerting.SumStateAlertingSetting;
 import io.openems.backend.common.alerting.UserAlertingSettings;
@@ -45,6 +48,7 @@ import io.openems.backend.common.metadata.User;
 import io.openems.common.channel.Level;
 import io.openems.common.event.EventBuilder;
 import io.openems.common.event.EventReader;
+import io.openems.common.exceptions.OpenemsError;
 import io.openems.common.exceptions.OpenemsError.OpenemsNamedException;
 import io.openems.common.exceptions.OpenemsException;
 import io.openems.common.jsonrpc.request.GetEdgesRequest.PaginationOptions;
@@ -53,19 +57,41 @@ import io.openems.common.session.Language;
 import io.openems.common.session.Role;
 import io.openems.common.utils.ThreadPoolUtils;
 
+/**
+ * Metadata provider for single-site deployments without Odoo or Keycloak.
+ *
+ * <p>
+ * Edges keep the original "Dummy" behaviour: Edge-IDs and API keys are
+ * auto-provisioned, no external database. User logins are real: this
+ * component also provides the {@link AuthUserPasswordAuthenticationService},
+ * checking usernames and PBKDF2 password hashes from the JSON file at
+ * {@link Config#usersPath()} (see users.example.json). Roles come from that
+ * file. Unknown users, wrong passwords and a missing file are all rejected
+ * with {@code COMMON_AUTHENTICATION_FAILED}.
+ */
 @Designate(ocd = Config.class, factory = false)
 @Component(//
 		name = "Metadata.Dummy", //
 		configurationPolicy = ConfigurationPolicy.REQUIRE, //
-		service = { Metadata.class, EventHandler.class, MetadataDummy.class }, //
+		service = { Metadata.class, EventHandler.class, MetadataDummy.class,
+				AuthUserPasswordAuthenticationService.class }, //
 		immediate = true //
 )
 @EventTopics({ //
 		Edge.Events.ON_SET_CONFIG //
 })
-public class MetadataDummy extends AbstractMetadata implements Metadata, EventHandler {
+public class MetadataDummy extends AbstractMetadata
+		implements Metadata, EventHandler, AuthUserPasswordAuthenticationService {
 
 	private static final Pattern NAME_NUMBER_PATTERN = Pattern.compile("[^0-9]+([0-9]+)$");
+
+	/**
+	 * Fixed salt and hash used to spend the same PBKDF2 time on an unknown
+	 * username as on a known one, so response time does not reveal which
+	 * usernames exist.
+	 */
+	private static final String DECOY_SALT = "AAAAAAAAAAAAAAAAAAAAAA==";
+	private static final String DECOY_HASH = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
 	private final Logger log = LoggerFactory.getLogger(MetadataDummy.class);
 
@@ -76,6 +102,8 @@ public class MetadataDummy extends AbstractMetadata implements Metadata, EventHa
 	private final Map<String, User> users = new HashMap<>();
 	private final Map<String, MyEdge> edges = new HashMap<>();
 	private final SimpleEdgeHandler edgeHandler = new SimpleEdgeHandler();
+	private final UsersFile usersFile;
+	private final TokenStore tokens;
 
 	private Language defaultLanguage = Language.DE;
 	private JsonObject settings = new JsonObject();
@@ -84,7 +112,11 @@ public class MetadataDummy extends AbstractMetadata implements Metadata, EventHa
 	public MetadataDummy(@Reference EventAdmin eventadmin, Config config) {
 		super("Metadata.Dummy");
 		this.eventAdmin = eventadmin;
-		this.logInfo(this.log, "Activate");
+		this.usersFile = new UsersFile(config.usersPath(), message -> this.logWarn(this.log, message));
+		final var lifetime = Duration.ofMinutes(Math.max(1, config.tokenLifetimeMinutes()));
+		this.tokens = new TokenStore(lifetime, System::nanoTime);
+		this.logInfo(this.log, "Activate [usersPath=" + config.usersPath() + ", users="
+				+ this.usersFile.get().size() + "]");
 
 		// Prefill
 		this.logInfo(this.log, "Prefilling Edges [" //
@@ -114,32 +146,58 @@ public class MetadataDummy extends AbstractMetadata implements Metadata, EventHa
 
 	@Override
 	public CompletableFuture<User> getUserByExternalId(String login) {
-		for (var user : this.users.values()) {
-			if (!user.getName().equals(login)) {
-				continue;
-			}
-			final var hasMultipleEdges = this.hasMultipleEdges();
-			final User returnUser;
-			if (user.hasMultipleEdges() != hasMultipleEdges //
-					|| !user.getSettings().equals(this.settings)) {
-				returnUser = this.createUser(user.getId(), user.getName(), user.getToken(), hasMultipleEdges);
-				this.users.put(login, returnUser);
-			} else {
-				returnUser = user;
-			}
-
-			return CompletableFuture.completedFuture(returnUser);
+		// Called after a successful password or token check, and by the OAuth
+		// handler with a token subject. Only users in the users file exist;
+		// the role always comes from the file.
+		final var entry = login == null ? null : this.usersFile.get().get(login);
+		if (entry == null) {
+			this.logWarn(this.log, "Unknown user [" + login + "]");
+			return CompletableFuture.failedFuture(OpenemsError.COMMON_AUTHENTICATION_FAILED.exception());
 		}
-
-		// TODO create separate dummy implementation for user auth
-		final var returnUser = this.createUser(login, login, login, true);
-		this.users.put(login, returnUser);
-		return CompletableFuture.completedFuture(returnUser);
+		final var user = new User(entry.username(), entry.name(), entry.username(), this.defaultLanguage,
+				entry.role(), this.hasMultipleEdges(), this.settings);
+		this.users.put(user.getId(), user);
+		return CompletableFuture.completedFuture(user);
 	}
 
-	private User createUser(String username, String name, String token, boolean hasMultipleEdges) {
-		return new User(username, name, token, this.defaultLanguage, Role.ADMIN, this.hasMultipleEdges(),
-				this.settings);
+	@Override
+	public CompletableFuture<PasswordAuthenticationResult> authenticateWithPassword(String username,
+			String password) {
+		final var entry = username == null ? null : this.usersFile.get().get(username);
+		final boolean ok;
+		if (entry == null) {
+			PasswordHash.verify(password == null ? "" : password, DECOY_SALT, PasswordHash.DEFAULT_ITERATIONS,
+					DECOY_HASH);
+			ok = false;
+		} else {
+			ok = PasswordHash.verify(password, entry.salt(), entry.iterations(), entry.hash());
+		}
+		if (!ok) {
+			// Same error for "no such user" and "wrong password"
+			this.logWarn(this.log, "Rejected login for [" + username + "]");
+			return CompletableFuture.failedFuture(OpenemsError.COMMON_AUTHENTICATION_FAILED.exception());
+		}
+		final var token = this.tokens.issue(entry.username());
+		this.logInfo(this.log, "Authenticated [" + entry.username() + "] as [" + entry.role() + "]");
+		return CompletableFuture
+				.completedFuture(new PasswordAuthenticationResult(entry.username(), entry.username(), token));
+	}
+
+	@Override
+	public CompletableFuture<PasswordAuthenticationResult> authenticateWithToken(String token) {
+		final var username = this.tokens.lookup(token);
+		if (username.isEmpty() || !this.usersFile.get().containsKey(username.get())) {
+			this.tokens.revoke(token);
+			return CompletableFuture.failedFuture(OpenemsError.COMMON_AUTHENTICATION_FAILED.exception());
+		}
+		return CompletableFuture
+				.completedFuture(new PasswordAuthenticationResult(username.get(), username.get(), token));
+	}
+
+	@Override
+	public CompletableFuture<Void> logout(String token) {
+		this.tokens.revoke(token);
+		return CompletableFuture.completedFuture(null);
 	}
 
 	private boolean hasMultipleEdges() {
@@ -348,7 +406,10 @@ public class MetadataDummy extends AbstractMetadata implements Metadata, EventHa
 
 	@Override
 	public Role getUserRole(User user, String edgeId) {
-		return Role.ADMIN;
+		// Current role from the users file, so a role change or removal applies
+		// to open sessions too. A removed user drops to GUEST.
+		final var entry = this.usersFile.get().get(user.getId());
+		return entry == null ? Role.GUEST : entry.role();
 	}
 
 	@Override
@@ -363,7 +424,7 @@ public class MetadataDummy extends AbstractMetadata implements Metadata, EventHa
 				edge.getComment(), //
 				edge.getProducttype(), //
 				edge.getVersion(), //
-				Role.ADMIN, //
+				this.getUserRole(user, edgeId), //
 				edge.isOnline(), //
 				edge.getLastmessage(), //
 				null, // firstSetupProtocol

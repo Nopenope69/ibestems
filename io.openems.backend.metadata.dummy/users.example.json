@@ -1,0 +1,18 @@
+{
+  "users": {
+    "admin": {
+      "name": "Administrator",
+      "role": "admin",
+      "salt": "REPLACE_ME_USE_GenerateUserHash",
+      "hash": "REPLACE_ME_USE_GenerateUserHash",
+      "iterations": 210000
+    },
+    "operator": {
+      "name": "Site Operator",
+      "role": "owner",
+      "salt": "REPLACE_ME_USE_GenerateUserHash",
+      "hash": "REPLACE_ME_USE_GenerateUserHash",
+      "iterations": 210000
+    }
+  }
+}

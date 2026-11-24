@@ -13,7 +13,6 @@ import com.google.gson.JsonObject;
 import io.openems.common.channel.Level;
 import io.openems.common.jsonrpc.request.GetEdgesRequest.PaginationOptions;
 import io.openems.common.jsonrpc.response.GetEdgesResponse.EdgeMetadata;
-import io.openems.common.session.Role;
 import io.openems.common.utils.ComparatorUtils;
 
 public class MetadataUtils {
@@ -89,7 +88,7 @@ public class MetadataUtils {
 						myEdge.getComment(), //
 						myEdge.getProducttype(), //
 						myEdge.getVersion(), //
-						Role.ADMIN, //
+						user.getGlobalRole(), //
 						myEdge.isOnline(), //
 						myEdge.getLastmessage(), //
 						null, // firstSetupProtocol
