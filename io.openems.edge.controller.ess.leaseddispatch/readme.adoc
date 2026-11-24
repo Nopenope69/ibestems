@@ -1,0 +1,18 @@
+= ESS Leased Dispatch
+
+Lets two (or more) redundant dispatch pollers share one battery safely. A poller is
+granted a time-limited *lease* with `leaseDispatch`; only the lease holder's active and
+reactive power setpoints are applied, every cycle, and only while the lease is live.
+When the holder stops renewing, the lease lapses after `leaseTimeoutSeconds` and the
+standby is granted on its next request. With nobody renewing, nothing is applied and the
+battery is released. The lease uses the Edge's monotonic clock.
+
+JSON-RPC (via `componentJsonApi`, componentId = this controller's id):
+
+* `leaseDispatch {holder, activePowerW?, reactivePowerVar?}` -> `{granted, holder, epoch, expiresInMillis}`
+* `yieldDispatch {holder}` -> `{yielded}`: the holder's setpoints stay applied until the next request from anyone, which is granted at once (gapless planned hand-over)
+* `releaseDispatch {holder}` -> `{released}`
+
+Run manual controllers (`Controller.Ess.FixActivePower`, `Controller.Symmetric.FixReactivePower`) *before* this one in the scheduler.
+
+Design record: EMS-ADDONS `docs/adr/0005-ha-dispatch-lease.md` and `0006-ota-signed-releases-rolling-upgrade.md`.
