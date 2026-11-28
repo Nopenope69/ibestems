@@ -10,7 +10,6 @@ public interface SystemFeneconHome extends OpenemsComponent, EventHandler {
 	public enum ChannelId implements io.openems.edge.common.channel.ChannelId {
 		;
 
-		@SuppressWarnings("unused")
 		private final Doc doc;
 
 		private ChannelId(Doc doc) {
@@ -19,7 +18,7 @@ public interface SystemFeneconHome extends OpenemsComponent, EventHandler {
 
 		@Override
 		public Doc doc() {
-			return this.doc();
+			return this.doc;
 		}
 	}
 }

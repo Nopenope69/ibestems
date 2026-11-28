@@ -2,6 +2,7 @@ package io.openems.edge.common.jsonapi;
 
 import static java.util.Collections.emptyList;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -13,10 +14,12 @@ import org.junit.Test;
 
 import com.google.gson.JsonObject;
 
+import io.openems.common.exceptions.OpenemsException;
 import io.openems.common.jsonrpc.base.GenericJsonrpcRequest;
 import io.openems.common.jsonrpc.base.GenericJsonrpcResponseSuccess;
 import io.openems.common.jsonrpc.base.JsonrpcRequest;
 import io.openems.common.jsonrpc.base.JsonrpcResponse;
+import io.openems.common.jsonrpc.base.JsonrpcResponseError;
 import io.openems.common.jsonrpc.serialization.EmptyObject;
 import io.openems.common.utils.FunctionUtils;
 
@@ -27,7 +30,7 @@ public class JsonApiBuilderTest {
 		final var builder = new JsonApiBuilder();
 
 		final var testMethod = "method";
-		builder.handleRequest(testMethod, t -> null);
+		builder.handleRequest(testMethod, _ -> null);
 
 		assertEquals(1, builder.getEndpoints().size());
 		final var addedEndpoint = builder.getEndpoints().get(testMethod);
@@ -113,12 +116,12 @@ public class JsonApiBuilderTest {
 		final var dummyDescription = "description";
 		builder.delegate(testMethod, endpoint -> {
 			endpoint.setDescription(dummyDescription);
-		}, call -> {
+		}, _ -> {
 			return new GenericJsonrpcRequest("method2", new JsonObject());
 		}, Function.identity(), Function.identity(), () -> emptyList());
 
 		final var isMethod2Called = new AtomicBoolean(false);
-		builder.handleRequest("method2", call -> {
+		builder.handleRequest("method2", _ -> {
 			isMethod2Called.set(true);
 			return null;
 		});
@@ -132,6 +135,34 @@ public class JsonApiBuilderTest {
 				new GenericJsonrpcRequest(testMethod, new JsonObject()));
 		builder.handle(testCall);
 		assertTrue(isMethod2Called.get());
+	}
+
+	@Test
+	public void testDelegateRunsGuards() throws Exception {
+		final var builder = new JsonApiBuilder();
+
+		final var testMethod = "method";
+		builder.delegate(testMethod, endpoint -> {
+			endpoint.setGuards(_ -> {
+				throw new OpenemsException("Access denied");
+			});
+		}, _ -> {
+			return new GenericJsonrpcRequest("method2", new JsonObject());
+		}, Function.identity(), Function.identity(), () -> emptyList());
+
+		final var isMethod2Called = new AtomicBoolean(false);
+		builder.handleRequest("method2", _ -> {
+			isMethod2Called.set(true);
+			return null;
+		});
+
+		final var testCall = new Call<JsonrpcRequest, JsonrpcResponse>(
+				new GenericJsonrpcRequest(testMethod, new JsonObject()));
+		builder.handle(testCall);
+
+		assertFalse("A failing guard must stop the delegated request", isMethod2Called.get());
+		assertNotNull("A failing guard must produce an error response", testCall.getResponse());
+		assertTrue(testCall.getResponse() instanceof JsonrpcResponseError);
 	}
 
 	@Test
@@ -159,7 +190,7 @@ public class JsonApiBuilderTest {
 		final var builder = new JsonApiBuilder();
 
 		final var testMethod = "method";
-		builder.handleRequest(testMethod, t -> null);
+		builder.handleRequest(testMethod, _ -> null);
 
 		assertEquals(1, builder.getEndpoints().size());
 

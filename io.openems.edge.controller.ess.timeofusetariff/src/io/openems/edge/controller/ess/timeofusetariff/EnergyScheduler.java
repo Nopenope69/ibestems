@@ -140,7 +140,7 @@ public class EnergyScheduler {
 									.collect(toImmutableList()));
 				})
 
-				.setInitialPopulationsProvider((goc, coc, modes) -> {
+				.setInitialPopulationsProvider((goc, _, modes) -> {
 					// Prepare Initial Population with cheapest grid-buy price per valley set to
 					// DELAY_DISCHARGE or CHARGE_GRID
 					final var result = ImmutableSortedSet.<InitialPopulation<StateMachine>>naturalOrder();
@@ -169,14 +169,14 @@ public class EnergyScheduler {
 					return OptimizationContext.from(goc, targetSocBuffer, manualTargetTime);
 				})
 
-				.setSimulator((id, period, gsc, coc, csc, ef, mode, fitness, isFinalRun) -> {
+				.setSimulator((_, period, gsc, coc, _, ef, mode, fitness, isFinalRun) -> {
 					if (mode == null) {
 						mode = BALANCING;
 					}
 
 					if (period.gridBuySoftLimit() != null) {
 						// Try setting GridMaxBuy to GridBuySoftLimit
-						ef.setGridMaxBuy(period.gridBuySoftLimit());
+						ef.setGridLessOrEquals(period.gridBuySoftLimit());
 					}
 
 					if (isFinalRun) {
@@ -194,7 +194,7 @@ public class EnergyScheduler {
 					return mode;
 				})
 
-				.setEvaluator((id, period, gsc, coc, csc, ef, mode, fitness, isFinalRun) -> {
+				.setEvaluator((_, period, gsc, coc, _, ef, _, fitness, _) -> {
 					var targetTime = coc.targetTimeByDay().get(period.time().toLocalDate());
 					if (targetTime == null) {
 						return;
@@ -271,7 +271,7 @@ public class EnergyScheduler {
 	 */
 	public static void applyBalancing(EnergyFlow.Model model) {
 		final int target = -model.getSurplus();
-		model.setEss(target);
+		model.commitEss(target);
 	}
 
 	/**
@@ -282,7 +282,7 @@ public class EnergyScheduler {
 	 */
 	public static void applyDelayDischarge(EnergyFlow.Model model) {
 		final int target = min(0, -model.getSurplus());
-		model.setEss(target);
+		model.commitEss(target);
 	}
 
 	/**
@@ -294,7 +294,7 @@ public class EnergyScheduler {
 	 */
 	public static void applyChargeGrid(EnergyFlow.Model model, int chargeEnergy) {
 		final int target = min(0, -model.getSurplus()) - chargeEnergy;
-		model.setEss(target);
+		model.commitEss(target);
 	}
 
 	/**
@@ -306,7 +306,7 @@ public class EnergyScheduler {
 	 */
 	public static void applyDischargeGrid(EnergyFlow.Model model, int dischargeEnergy) {
 		final int target = max(0, -model.getSurplus()) + dischargeEnergy;
-		model.setEss(target);
+		model.commitEss(target);
 	}
 
 	/**
@@ -317,7 +317,7 @@ public class EnergyScheduler {
 	 */
 	public static void applyDelayCharge(EnergyFlow.Model model) {
 		final int target = -min(0, model.getSurplus());
-		model.setEss(target);
+		model.commitEss(target);
 	}
 
 	/**
@@ -331,7 +331,7 @@ public class EnergyScheduler {
 		final int target = (limitChargeEnergy != null) //
 				? -min(limitChargeEnergy, model.getSurplus()) //
 				: -model.getSurplus();
-		model.setEss(target);
+		model.commitEss(target);
 	}
 
 	/**
@@ -342,7 +342,7 @@ public class EnergyScheduler {
 	 */
 	public static void applyDischargeConsumption(EnergyFlow.Model model) {
 		final int target = model.getConsumption();
-		model.setEss(target);
+		model.commitEss(target);
 	}
 
 	private static Integer calculateLimitChargeEnergy(//

@@ -17,6 +17,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -53,9 +55,9 @@ public class SimulatorTest {
 	public static final EnergyScheduleHandler.WithOnlyOneMode ESH0 = //
 			new OneMode.Builder<Integer, Void>("Controller.Dummy", "esh0") //
 					.setOptimizationContext(goc -> goc.ess().totalEnergy()) //
-					.setSimulator((id, period, gsc, coc, csc, ef, fitness) -> {
+					.setSimulator((_, _, gsc, _, _, ef, _) -> {
 						var minEnergy = socToEnergy(gsc.goc.ess().totalEnergy(), 10 /* [%] */);
-						ef.setEssMaxDischarge(Math.max(0, gsc.ess.getInitialEnergy() - minEnergy));
+						ef.setEssLessOrEquals(Math.max(0, gsc.ess.getInitialEnergy() - minEnergy));
 					}) //
 					.build();
 
@@ -105,7 +107,7 @@ public class SimulatorTest {
 	public static final EshWithDifferentModes<Esh2State, Void, Void> ESH2 = //
 			new DifferentModes.Builder<Esh2State, Void, Void>("Controller.Dummy", "esh2") //
 					.setModes(() -> new SingleModes<Esh2State>(null, Esh2State.values())) //
-					.setInitialPopulationsProvider((goc, coc, modes) -> {
+					.setInitialPopulationsProvider((goc, _, _) -> {
 						return ImmutableSortedSet.of(//
 								new InitialPopulation<Esh2State>(goc.periods().stream() //
 										.map(p -> p.index() % 3 == 0 //
@@ -272,6 +274,44 @@ public class SimulatorTest {
 		assertEquals(//
 				"ctrlEvseSingle0:FORCE+ctrlEvseSingle1:SURPLUS", //
 				ESH_EVSE_CLUSTER.getCurrentPeriod().mode().toString());
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "1200, 400, 100, 2", "400, 400, 100, 1", "300, 300, 0, 1" })
+	void testSimulation_shouldClampConsumptionAndCountViolations_whenSimulatingSupplyLimits(
+			final int predictedConsumption, final int expectedConsumption, final int expectedGrid,
+			final int expectedViolations) {
+		final var periods = Periods.builder(Environment.TEST) //
+				.addPeriodIfValid(TIME, null, 200, predictedConsumption, 100., null) //
+				.addPeriodIfValid(TIME.plusMinutes(15), null, 0, 1200, 100., null) //
+				.build();
+		final var goc = new GlobalOptimizationContext(//
+				CLOCK, Environment.TEST, TIME, //
+				ImmutableList.of(), ImmutableList.of(), //
+				new GlobalOptimizationContext.Grid(400, 400, 400,
+						io.openems.common.jscalendar.JSCalendar.Tasks.empty()), //
+				new GlobalOptimizationContext.Ess(100, 1000, 400, 400), //
+				periods);
+
+		final var result = SimulationResult.fromQuarters(goc, new int[] { 0, 0 }, 0, 0);
+
+		assertEquals(2, result.periods().size());
+		assertEquals(expectedViolations, result.fitness().hardConstraintViolations());
+
+		final var first = result.periods().get(TIME);
+		assertEquals(expectedConsumption, first.energyFlow().getUnmanagedConsumption());
+		assertEquals(200, first.energyFlow().getProduction());
+		assertEquals(100, first.energyFlow().getEss());
+		assertEquals(expectedGrid, first.energyFlow().getGrid());
+		assertEquals(predictedConsumption, first.period().data().consumption().orElseThrow().riskAdjusted());
+
+		final var second = result.periods().get(TIME.plusMinutes(15));
+		assertEquals(0, second.essInitialEnergy());
+		assertEquals(100, second.energyFlow().getUnmanagedConsumption());
+		assertEquals(0, second.energyFlow().getProduction());
+		assertEquals(0, second.energyFlow().getEss());
+		assertEquals(100, second.energyFlow().getGrid());
+		assertEquals(1200, second.period().data().consumption().orElseThrow().riskAdjusted());
 	}
 
 	@Test

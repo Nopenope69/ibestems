@@ -170,8 +170,7 @@ public abstract class AbstractWebsocketServer<T extends WsData> extends Abstract
 	 * @return the debug metrics
 	 */
 	public Map<String, Number> debugMetrics() {
-		final var metrics = new HashMap<String, Number>();
-		metrics.putAll(ThreadPoolUtils.debugMetrics(this.executor));
+		final var metrics = new HashMap<String, Number>(ThreadPoolUtils.debugMetrics(this.executor));
 		metrics.put("Connections", this.connections.size());
 		return metrics;
 	}
@@ -180,7 +179,7 @@ public abstract class AbstractWebsocketServer<T extends WsData> extends Abstract
 	protected OnInternalError getOnInternalError() {
 		return (t, wsDataString) -> {
 			switch (t) {
-			case BindException be //
+			case BindException _ //
 				-> this.logError(this.log, "Unable to Bind to port [" + this.port + "]");
 			default //
 				-> this.logError(this.log, new StringBuilder() //

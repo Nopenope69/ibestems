@@ -22,19 +22,20 @@ public abstract class AbstractWaitHandler extends StateHandler<StateMachine.Stat
 
 	@Override
 	protected void onEntry(Context context) {
+		context.requestZeroBatteryPower();
 		this.stateEnteredAt = context.getClock().instant();
 	}
 
 	@Override
 	protected StateMachine.State runAndGetNextState(Context context) throws OpenemsError.OpenemsNamedException {
+		context.requestZeroBatteryPower();
 		final Instant targetTime = this.stateEnteredAt.plus(WAIT_DURATION_MINUTES, ChronoUnit.MINUTES);
 		final Instant now = context.getClock().instant();
 
 		if (targetTime.isAfter(now)) {
 			final long minutesLeft = ChronoUnit.MINUTES.between(now, targetTime);
 			final int soc = context.ess.getSoc().orElse(0);
-			context.logInfo(log, String.format(
-					"%s: SoC=%d%%, waiting %d min, %d minutes left",
+			context.logInfo(log, String.format("%s: SoC=%d%%, waiting %d min, %d minutes left",
 					this.getCurrentState().getName(), soc, WAIT_DURATION_MINUTES, minutesLeft));
 			return this.getCurrentState();
 		}

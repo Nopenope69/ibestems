@@ -1,8 +1,8 @@
 package io.openems.edge.fluidcooling.hydac;
 
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_1;
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_MINUS_1;
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_MINUS_2;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_1;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_MINUS_1;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_MINUS_2;
 import static io.openems.edge.common.channel.ChannelUtils.setValue;
 import static io.openems.edge.common.startstop.StartStop.START;
 import static io.openems.edge.common.startstop.StartStop.STOP;
@@ -276,7 +276,7 @@ public class HydacImpl extends AbstractOpenemsModbusComponent
 	public void buildJsonApiRoutes(JsonApiBuilder builder) {
 		builder.handleRequest(EndpointRequestType.ofEmpty("clearErrorRequest"),
 				endpoint -> endpoint.setGuards(EdgeGuards.roleIsAtleast(Role.INSTALLER)), //
-				call -> {
+				_ -> {
 					this.clearCoolingUnitErrors();
 					return EmptyObject.INSTANCE;
 				});

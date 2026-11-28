@@ -41,15 +41,16 @@ public final class AppInstanceProps {
 	) {
 		return AppDef.copyOfGeneric(CommonProps.defaultDef(), def -> def //
 				.setTranslatedLabel("app.instance.id.singular") //
-				.setField(JsonFormlyUtil::buildSelectFromNameable, (app, property, l, parameter, field) -> {
+				.setField(JsonFormlyUtil::buildSelectFromNameable, (app, _, _, _, field) -> {
 					field.setOptions(supplyInstances.apply(app), //
 							DEFAULT_INSTANCE_2_LABEL, DEFAULT_INSTANCE_2_VALUE);
-				}).setDefaultValue((app, property, l, parameter) -> {
+				}) //
+				.setDefaultValue((app, _, _, _) -> {
 					final var components = supplyInstances.apply(app);
 					if (components.isEmpty()) {
 						return JsonNull.INSTANCE;
 					}
-					return new JsonPrimitive(components.get(0).instanceId.toString());
+					return new JsonPrimitive(components.getFirst().instanceId.toString());
 				}));
 	}
 

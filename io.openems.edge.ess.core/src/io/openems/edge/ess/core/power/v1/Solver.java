@@ -1,5 +1,6 @@
 package io.openems.edge.ess.core.power.v1;
 
+import static io.openems.common.utils.FunctionUtils.doNothing;
 import static io.openems.edge.common.channel.ChannelUtils.setValue;
 import static io.openems.edge.ess.core.power.Utils.fillMetaEssDebugChannels;
 import static io.openems.edge.ess.power.api.SolverStrategy.OPTIMIZE_BY_KEEPING_ALL_EQUAL;
@@ -56,8 +57,7 @@ public class Solver {
 	private final Optimizers optimizers = new Optimizers();
 	private final boolean debugMode;
 
-	private OnSolved onSolvedCallback = (isSolved, duration, strategy) -> {
-	};
+	private OnSolved onSolvedCallback = (_, _, _) -> doNothing();
 
 	private final ThrowingFunction<List<Inverter>, PointValuePair, Exception> solveWithDisabledInverters;
 
@@ -314,7 +314,16 @@ public class Solver {
 			inv.setLastActivePower(powerTuple.getActivePower());
 		});
 
-		for (var ess : this.esssSupplier.get()) {
+		final var esss = this.esssSupplier.get();
+		var hasMetaEss = false;
+		for (var e : esss) {
+			if (e instanceof MetaEss) {
+				hasMetaEss = true;
+				break;
+			}
+		}
+
+		for (var ess : esss) {
 			if (ess instanceof MetaEss) {
 				// ignore MetaEss
 				continue;
@@ -411,7 +420,8 @@ public class Solver {
 					ess._setApplyPowerFailed(true);
 				}
 
-			} else {
+			} else if (!hasMetaEss) {
+				// Individual site only: every live ESS should have a solution
 				this.log.error("No Solution for [" + ess.id() + "] available!");
 			}
 		}

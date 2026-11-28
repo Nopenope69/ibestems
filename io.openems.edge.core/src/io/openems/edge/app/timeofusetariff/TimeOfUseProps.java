@@ -8,15 +8,12 @@ import java.util.function.Consumer;
 
 import com.google.common.collect.Lists;
 
-import io.openems.common.channel.Unit;
 import io.openems.common.types.CurrencyConfig;
 import io.openems.common.types.EdgeConfig;
 import io.openems.common.types.EdgeConfig.Component;
 import io.openems.common.utils.JsonUtils;
 import io.openems.common.utils.JsonUtils.JsonObjectBuilder;
-import io.openems.edge.app.common.props.CommonProps;
 import io.openems.edge.core.appmanager.AppDef;
-import io.openems.edge.core.appmanager.ComponentManagerSupplier;
 import io.openems.edge.core.appmanager.ConfigurationTarget;
 import io.openems.edge.core.appmanager.Nameable;
 import io.openems.edge.core.appmanager.OpenemsApp;
@@ -38,7 +35,7 @@ public final class TimeOfUseProps {
 		return AppDef.copyOfGeneric(defaultDef(), def -> def//
 				.setTranslatedLabel("App.TimeOfUseTariff.zipCode.label") //
 				.setTranslatedDescription("App.TimeOfUseTariff.zipCode.description") //
-				.setField(JsonFormlyUtil::buildInputFromNameable, (app, property, l, parameter, field) -> {
+				.setField(JsonFormlyUtil::buildInputFromNameable, (_, _, _, _, field) -> {
 					field.setInputType(InputType.NUMBER);
 				}));
 	}
@@ -54,7 +51,7 @@ public final class TimeOfUseProps {
 				.setTranslatedLabelWithAppPrefix(prefix + ".label") //
 				.setTranslatedDescriptionWithAppPrefix(prefix + ".description") //
 				.setRequired(true)//
-				.setField(JsonFormlyUtil::buildInputFromNameable, (app, property, l, parameter, field) -> {
+				.setField(JsonFormlyUtil::buildInputFromNameable, (_, _, _, _, field) -> {
 					field.setInputType(NUMBER); //
 					field.setUnit(CurrencyConfig.EUR.getUnderPart() + "/kWh");
 				}));
@@ -72,7 +69,7 @@ public final class TimeOfUseProps {
 		return AppDef.copyOfGeneric(defaultDef(), def -> def//
 				.setTranslatedLabel("App.TimeOfUseTariff.ENTSO-E.14aCheck.label")//
 				.setDefaultValue(false)//
-				.setField(JsonFormlyUtil::buildCheckboxFromNameable, (app, property, l, parameter, field) -> {
+				.setField(JsonFormlyUtil::buildCheckboxFromNameable, (_, _, _, _, field) -> {
 					if (biddingZoneProperty != null) {
 						final var isInBiddingZone = Exp.staticValue(EntsoE.BiddingZone.GERMANY)
 								.equal(Exp.currentModelValue(biddingZoneProperty));
@@ -88,28 +85,6 @@ public final class TimeOfUseProps {
 	 */
 	public static AppDef<OpenemsApp, Nameable, BundleProvider> paragraph14aCheck() {
 		return paragraph14aCheck(null);
-	}
-
-	/**
-	 * Creates a {@link AppDef} for max charge from grid.
-	 * 
-	 * @param <APP>            the type of the {@link OpenemsApp}
-	 * @param propOfController the {@link Nameable} to the id of the controller
-	 * @return the {@link AppDef}
-	 */
-	public static <APP extends OpenemsApp & ComponentManagerSupplier> AppDef<APP, Nameable, BundleProvider> maxChargeFromGrid(//
-			Nameable propOfController //
-	) {
-		return AppDef.copyOfGeneric(CommonProps.defaultDef(), def -> def//
-				.setTranslatedLabel("App.TimeOfUseTariff.maxChargeFromGrid.label") //
-				.setDefaultValue(20_000) //
-				.setField(JsonFormlyUtil::buildInputFromNameable, (app, prop, l, params, field) -> {
-					field.setInputType(InputType.NUMBER);
-					field.setMin(0);
-					field.setUnit(Unit.WATT, l);
-				}) //
-				.bidirectional(propOfController, "maxChargePowerFromGrid",
-						ComponentManagerSupplier::getComponentManager));
 	}
 
 	private TimeOfUseProps() {

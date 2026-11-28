@@ -115,7 +115,7 @@ class EnergySchedulerTest {
 						remainingHeatEnergy).getEnergyScheduleHandler());
 
 		var totalEnergy = IntStream.range(0, 4) //
-				.map(i -> t.simulatePeriod().ef().getManagedConsumption(COMPONENT_ID)) //
+				.map(_ -> t.simulatePeriod().ef().getManagedConsumption(COMPONENT_ID)) //
 				.sum();
 
 		assertEquals(remainingHeatEnergy, totalEnergy);
@@ -156,10 +156,10 @@ class EnergySchedulerTest {
 				.build();
 		var heat = new TestEnergySchedulable(clock, new EnergyScheduler.Config(Mode.OFF, 4000, tasks), 1000);
 		var firstPeriodLimit = new OneMode.Builder<Void, Void>("Controller.Dummy", "limit0") //
-				.setSimulator((id, period, gsc, coc, csc, ef, fitness) -> {
+				.setSimulator((_, period, gsc, _, _, ef, _) -> {
 					if (period.time().equals(gsc.goc.periods().getFirst().time())) {
-						ef.setEssMaxDischarge(0);
-						ef.setGridMaxBuy(400 - ef.getSurplus());
+						ef.setEssLessOrEquals(0);
+						ef.setGridLessOrEquals(400 - ef.getSurplus());
 					}
 				}) //
 				.build();

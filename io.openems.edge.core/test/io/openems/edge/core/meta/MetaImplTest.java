@@ -11,7 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 
 import java.time.temporal.ChronoUnit;
-import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -19,13 +18,19 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import io.openems.common.bridge.http.dummy.DummyBridgeHttpFactory;
+import io.openems.common.jscalendar.GetAllTasks;
+import io.openems.common.jsonrpc.base.GenericJsonrpcRequest;
+import io.openems.common.jsonrpc.base.JsonrpcRequest;
+import io.openems.common.jsonrpc.base.JsonrpcResponse;
 import io.openems.common.oem.DummyOpenemsEdgeOem;
 import io.openems.common.test.DummyConfigurationAdmin;
 import io.openems.edge.common.component.ComponentManager;
-import io.openems.edge.common.meta.GridSellLimit;
+import io.openems.edge.common.jsonapi.Call;
+import io.openems.edge.common.jsonapi.JsonApiBuilder;
 import io.openems.edge.common.meta.Meta;
 import io.openems.edge.common.meta.types.Environment;
 import io.openems.edge.common.meta.types.EnvironmentStatus;
+import io.openems.edge.common.meta.types.GridLimit;
 import io.openems.edge.common.test.AbstractComponentTest.TestCase;
 import io.openems.edge.common.test.ComponentTest;
 import io.openems.edge.common.test.DummyComponentManager;
@@ -64,7 +69,7 @@ class MetaImplTest {
 						.setGridConnectionPointFuseLimit(32) //
 						.setGridFeedInLimitationType(GridFeedInLimitationType.DYNAMIC_LIMITATION) //
 						.setMaximumGridFeedInLimit(12345) //
-						.setGridSoftLimit(buildJsonArray() //
+						.setGridBuySoftLimit(buildJsonArray() //
 								.add(buildJsonObject() //
 										.addProperty("@type", "Task") //
 										.addProperty("uid", UID_1) //
@@ -107,7 +112,7 @@ class MetaImplTest {
 		assertEquals(EnvironmentStatus.STABLE.name(), //
 				cm.getConfiguration(Meta.SINGLETON_SERVICE_PID, "?").getProperties().get("environmentStatus"));
 
-		final var ots = sut.getGridBuyLimit().soft() //
+		final var ots = sut.getGridLimit().gridBuySoftLimit() //
 				.getOneTasksBetween(clock.now(), clock.now().plusHours(48)).iterator();
 		{
 			// from 00:00 to 08:00: defined fallback task
@@ -151,11 +156,10 @@ class MetaImplTest {
 		}
 
 		// Validate Hard Limits
-		assertEquals(16170, sut.getGridBuyLimit().hard().power());
-		assertEquals(new GridSellLimit(new GridSellLimit.Hard(12345, 11728)), sut.getGridSellLimit());
-		assertEquals(12345, sut.getGridSellHardLimit());
-		assertEquals(11728, sut.getGridSellHardLimitWithBuffer());
-		assertEquals(12345, sut.getEssDischargeToGridLimit());
+		assertEquals(22170, sut.getGridLimit().gridBuyHardLimit());
+		assertEquals(16170, sut.getGridLimit().gridBuyHardLimitWithBuffer());
+		assertEquals(12345, sut.getGridLimit().gridSellHardLimit());
+		assertEquals(11728, sut.getGridLimit().gridSellHardLimitWithBuffer());
 
 		// Test Live Channels
 		test //
@@ -233,8 +237,8 @@ class MetaImplTest {
 						.build());
 
 		// Grid sell hard limit should be clamped to 0 (zero export enforced)
-		assertEquals(0, sut.getGridSellHardLimit());
-		assertEquals(Optional.of(0), sut.getConfiguredMaximumGridFeedInLimit());
+		assertEquals(0, sut.getGridLimit().gridSellHardLimit());
+		assertEquals(0, sut.getGridLimit().gridSellHardLimitWithBuffer());
 	}
 
 	@ParameterizedTest
@@ -264,8 +268,8 @@ class MetaImplTest {
 
 		// Grid sell hard limit should fall back to fuse limit when no fixed limit is
 		// set
-		assertEquals(22170, sut.getGridSellHardLimit());
-		assertEquals(Optional.empty(), sut.getConfiguredMaximumGridFeedInLimit());
+		assertEquals(22170, sut.getGridLimit().gridSellHardLimit());
+		assertEquals(21061, sut.getGridLimit().gridSellHardLimitWithBuffer());
 	}
 
 	@ParameterizedTest
@@ -295,8 +299,7 @@ class MetaImplTest {
 						.build());
 
 		// Grid sell hard limit should be the minimum of configured and fuse limits
-		assertEquals(hardLimit, sut.getGridSellHardLimit());
-		assertEquals(Optional.of(configuredLimit), sut.getConfiguredMaximumGridFeedInLimit());
+		assertEquals(hardLimit, sut.getGridLimit().gridSellHardLimit());
 	}
 
 	@Test
@@ -325,12 +328,13 @@ class MetaImplTest {
 
 		// Grid sell hard limit should be fuse limit (configured limit is ignored with
 		// NO_LIMITATION)
-		assertEquals(22170, sut.getGridSellHardLimit());
-		assertEquals(Optional.empty(), sut.getConfiguredMaximumGridFeedInLimit());
+		assertEquals(22170, sut.getGridLimit().gridSellHardLimit());
+		assertEquals(21061, sut.getGridLimit().gridSellHardLimitWithBuffer());
 	}
 
 	@ParameterizedTest(name = "gridSellHardLimit={0} -> expected={1}")
-	@CsvSource({ "1000,850", // 5% = 50 -> min buffer 150
+	@CsvSource({ //
+			"1000,850", // 5% = 50 -> min buffer 150
 			"10000,9500", // 5% = 500
 			"3333,3166" // 5% = 166.65 -> round(3166.35) = 3166
 	})
@@ -356,8 +360,7 @@ class MetaImplTest {
 						.setMaximumGridFeedInLimit(gridSellHardLimit) //
 						.build());
 
-		assertEquals(expected, sut.getGridSellLimit().hard().powerWithBuffer());
-		assertEquals(expected, sut.getGridSellHardLimitWithBuffer());
+		assertEquals(expected, sut.getGridLimit().gridSellHardLimitWithBuffer());
 		test.deactivate();
 	}
 
@@ -386,6 +389,126 @@ class MetaImplTest {
 						.setMaximumGridFeedInLimit(12345) //
 						.build());
 
-		assertEquals(0, sut.getEssDischargeToGridLimit());
+		assertEquals(0, sut.getGridLimit().essDischargeToGridLimit());
+	}
+
+	@Test
+	void testStaticGridBuySoftLimitAndScheduleHierarchy() throws Exception {
+		final var cm = new DummyConfigurationAdmin();
+		cm.getOrCreateEmptyConfiguration(ComponentManager.SINGLETON_SERVICE_PID);
+		final var clock = createDummyClock();
+		final var factory = ofBridgeImpl(//
+				DummyBridgeHttpFactory::dummyEndpointFetcher, //
+				() -> dummyBridgeHttpExecutor(clock, true));
+		final var sut = new MetaImpl();
+		final var test = new ComponentTest(sut) //
+				.addReference("cm", cm) //
+				.addReference("componentManager", new DummyComponentManager(clock)) //
+				.addReference("oem", new DummyOpenemsEdgeOem()) //
+				.addReference("httpBridgeFactory", factory) //
+				.activate(MyConfig.create() //
+						.setCurrency(EUR) //
+						.setGridConnectionPointFuseLimit(32) // HardLimitWithBuffer = 16,170 W
+						.setStaticGridBuySoftLimit(10000) //
+						.setGridBuySoftLimit(buildJsonArray() //
+								.add(buildJsonObject() //
+										.addProperty("@type", "Task") //
+										.addProperty("uid", UID_1) //
+										.addProperty("start", "08:00:00") //
+										.addProperty("duration", "PT1H") //
+										.add("recurrenceRules", buildJsonArray() //
+												.add(buildJsonObject().addProperty("frequency", "daily").build()) //
+												.build()) //
+										.add("openems.io:payload", buildJsonObject() //
+												.addProperty("power", 6000) //
+												.build()) //
+										.build()) //
+								.add(buildJsonObject() //
+										.addProperty("@type", "Task") //
+										.addProperty("uid", UID_2) //
+										.addProperty("start", "10:00:00") //
+										.addProperty("duration", "PT1H") //
+										.add("recurrenceRules", buildJsonArray() //
+												.add(buildJsonObject().addProperty("frequency", "daily").build()) //
+												.build()) //
+										.add("openems.io:payload", buildJsonObject() //
+												.addProperty("power", 14000) // > staticGridBuySoftLimit (10,000 W)
+												.build()) //
+										.build()) //
+								.build().toString()) //
+						.build());
+
+		assertEquals(10000, sut.getGridLimit().activeGridBuySoftLimit());
+
+		final var tasks = sut.getGridLimit().gridBuySoftLimit() //
+				.getOneTasksBetween(clock.now(), clock.now().plusHours(12)).iterator();
+		// 00:00 - 08:00: fallback to staticGridBuySoftLimit
+		assertEquals(new GridLimit.Power(10000), tasks.next().payload());
+		// 08:00 - 09:00: scheduled task below staticGridBuySoftLimit
+		assertEquals(new GridLimit.Power(6000), tasks.next().payload());
+		// 09:00 - 10:00: fallback to staticGridBuySoftLimit
+		assertEquals(new GridLimit.Power(10000), tasks.next().payload());
+		// 10:00 - 11:00: scheduled task capped at staticGridBuySoftLimit
+		assertEquals(new GridLimit.Power(10000), tasks.next().payload());
+		// 11:00 - 12:00: fallback to staticGridBuySoftLimit
+		assertEquals(new GridLimit.Power(10000), tasks.next().payload());
+
+		// JSCalendarApi only exposes raw configured schedule tasks
+		final var routes = new JsonApiBuilder();
+		sut.buildJsonApiRoutes(routes);
+		final var allCall = new Call<JsonrpcRequest, JsonrpcResponse>(
+				new GenericJsonrpcRequest("getAllTasks", buildJsonObject().build()));
+		routes.handle(allCall);
+		final var all = GetAllTasks.Response.serializer(GridLimit.Power.serializer()) //
+				.deserialize(allCall.getResponse().toJsonObject().get("result"));
+		assertEquals(2, all.tasks().size());
+		assertEquals(UID_1, all.tasks().get(0).uid());
+		assertEquals(new GridLimit.Power(14000), all.tasks().get(1).payload());
+
+		test //
+				.next(new TestCase() //
+						.output(Meta.ChannelId.GRID_BUY_SOFT_LIMIT, 10000)) //
+				.next(new TestCase() //
+						.timeleap(clock, 8, ChronoUnit.HOURS) //
+						.output(Meta.ChannelId.GRID_BUY_SOFT_LIMIT, 6000)) //
+				.next(new TestCase() //
+						.timeleap(clock, 2, ChronoUnit.HOURS) //
+						.output(Meta.ChannelId.GRID_BUY_SOFT_LIMIT, 10000)) //
+				.deactivate();
+	}
+
+	@ParameterizedTest
+	@CsvSource({ //
+			"-1,16170", // no fixed soft limit -> falls back to hardLimitWithBuffer
+			"-1000,16170", // negative -> normalized to no fixed soft limit
+			"0,0", // zero buy soft limit
+			"10000,10000", // within hardLimitWithBuffer
+			"20000,16170" // capped at hardLimitWithBuffer
+	})
+	void testStaticGridBuySoftLimitBoundaries(int configuredLimit, int expectedLimit) throws Exception {
+		final var cm = new DummyConfigurationAdmin();
+		cm.getOrCreateEmptyConfiguration(ComponentManager.SINGLETON_SERVICE_PID);
+		final var clock = createDummyClock();
+		final var factory = ofBridgeImpl(//
+				DummyBridgeHttpFactory::dummyEndpointFetcher, //
+				() -> dummyBridgeHttpExecutor(clock, true));
+
+		final var sut = new MetaImpl();
+		final var test = new ComponentTest(sut) //
+				.addReference("cm", cm) //
+				.addReference("componentManager", new DummyComponentManager(clock)) //
+				.addReference("oem", new DummyOpenemsEdgeOem()) //
+				.addReference("httpBridgeFactory", factory) //
+				.activate(MyConfig.create() //
+						.setCurrency(EUR) //
+						.setGridConnectionPointFuseLimit(32) // HardLimitWithBuffer = 16,170 W
+						.setStaticGridBuySoftLimit(configuredLimit) //
+						.build());
+
+		assertEquals(expectedLimit, sut.getGridLimit().activeGridBuySoftLimit());
+		test //
+				.next(new TestCase() //
+						.output(Meta.ChannelId.GRID_BUY_SOFT_LIMIT, expectedLimit)) //
+				.deactivate();
 	}
 }

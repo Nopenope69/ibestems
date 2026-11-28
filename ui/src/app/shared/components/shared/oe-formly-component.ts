@@ -1,10 +1,10 @@
-import { Directive, effect, EffectRef, inject, Injector, OnDestroy, signal, Type } from "@angular/core";
+import { Directive, effect, EffectRef, inject, Injector, OnDestroy, OnInit, signal, Type } from "@angular/core";
 import { FormGroup } from "@angular/forms";
 import { IonInput, IonRange } from "@ionic/angular";
 import { FormlyFieldConfig } from "@ngx-formly/core";
 import { TranslateService } from "@ngx-translate/core";
 import { Subject } from "rxjs";
-import { filter, finalize, take, takeUntil } from "rxjs/operators";
+import { filter, take, takeUntil } from "rxjs/operators";
 import { RouteService } from "../../service/route/route.service";
 import { ChannelAddress, CurrentData, Edge, EdgeConfig, Service, Websocket } from "../../shared";
 import { SharedModule } from "../../shared.module";
@@ -17,14 +17,16 @@ import { AbstractModalLine } from "../modal/abstract-modal-line";
 import { ButtonLabel } from "../modal/modal-button/modal-button";
 import { TextIndentation } from "../modal/modal-line/modal-line";
 import { NavigationService } from "../navigation/service/navigation.service";
+import type { CardStyle } from "../oe-card/oe-card";
 import { OeImageComponent } from "../oe-img/oe-img";
+import type { OeLink } from "../oe-link/oe-link";
 import { Stat } from "../stats/stats";
 import { Converter } from "./converter";
 import { DataService } from "./dataservice";
 import { Filter } from "./filter";
 
 @Directive()
-export abstract class AbstractFormlyComponent<T = unknown> implements OnDestroy {
+export abstract class AbstractFormlyComponent<T = unknown> implements OnDestroy, OnInit {
     protected readonly fields = signal<FormlyFieldConfig[]>([]);
     protected readonly form = signal<FormGroup>(new FormGroup({}));
     protected readonly view = signal<OeFormlyView<T> | null>(null);
@@ -43,6 +45,7 @@ export abstract class AbstractFormlyComponent<T = unknown> implements OnDestroy 
     protected skipCurrentData: boolean = false;
     private injector: Injector = inject(Injector);
     private subscription: EffectRef | null = null;
+    private initEffect: EffectRef | null = null;
 
     constructor() {
         this.initializeView();
@@ -65,9 +68,6 @@ export abstract class AbstractFormlyComponent<T = unknown> implements OnDestroy 
                 .pipe(
                     filter((config) => !!config),
                     takeUntil(this.stopOnDestroy),
-                    finalize(() => {
-                        this.navigationService.headerTitle.set(null);
-                    }),
                 )
                 .subscribe(async (config) => {
                     const view = await this.generateView({
@@ -78,28 +78,31 @@ export abstract class AbstractFormlyComponent<T = unknown> implements OnDestroy 
                     this.view.set(view);
                     this.form.set(this.getFormGroup());
                     this.setFields(view, this.form(), this.service.websocket);
+                    this.ngOnInit();
                 });
         });
 
-        effect(() => {
+        this.initEffect = effect(() => {
             const isNavigationInitialized = this.navigationService.getIsInitialized();
             if (!isNavigationInitialized) {
                 return;
             }
-            this.ionViewWillEnter();
+            this.ngOnInit();
         });
     }
 
-    ionViewWillEnter() {
-        this.navigationService.headerTitle.set(this.view()?.isCommonWidget ? this.view()!.title : null);
-    }
-
-    ionViewWillLeave() {
-        this.navigationService.headerTitle.set(null);
-        this.ngOnDestroy();
+    ngOnInit() {
+        const view = this.view();
+        this.navigationService.headerTitle.set({
+            text: view?.useCiFont ? view!.title : null,
+            useCiFont: view?.useCiFont ?? false,
+        });
     }
 
     public async ngOnDestroy() {
+        if (this.navigationService.headerTitle().text === this.view()!.title) {
+            this.navigationService.headerTitle.set({ text: null });
+        }
         this.initializeView();
         this.stopOnDestroy.next();
         this.stopOnDestroy.complete();
@@ -372,7 +375,7 @@ export abstract class AbstractFormlyComponent<T = unknown> implements OnDestroy 
         formlyWrapper: "formly-field-modal" | "formly-field-navigation" | "formly-field-waiting-spinner" = this
             .formlyWrapper,
     ) {
-        this.ionViewWillEnter();
+        this.ngOnInit();
         this.fields.set([
             {
                 fieldGroup: view.lines.map((el, index) => {
@@ -387,7 +390,7 @@ export abstract class AbstractFormlyComponent<T = unknown> implements OnDestroy 
                                     : {}),
                             },
                             required: true,
-                            options: [{ line: el }],
+                            options: [{ line: el, ...(view.useCiFont != null ? { useCiFont: view.useCiFont } : {}) }],
                         },
                         hooks: {
                             onInit: (field) => {
@@ -429,7 +432,8 @@ export abstract class AbstractFormlyComponent<T = unknown> implements OnDestroy 
                                       },
                                   }
                                 : {}),
-                            ...(view.isCommonWidget != null ? { isCommonWidget: view.isCommonWidget } : {}),
+                            ...(view.useCiFont != null ? { useCiFont: view.useCiFont } : {}),
+                            ...(view.tourId != null ? { tourId: view.tourId } : {}),
                         },
                     ],
                     onSubmit: (fg: FormGroup) => {
@@ -459,8 +463,9 @@ export type ViewContext = Readonly<{
 export type OeFormlyView<T = unknown> = {
     title: string;
     lines: OeFormlyField<T>[];
-    isCommonWidget?: boolean;
+    useCiFont?: boolean;
     helpKey?: string | null;
+    tourId?: string | null;
     icon?: Icon;
     component?: EdgeConfig.Component | null;
     edge?: Edge;
@@ -473,6 +478,7 @@ export type OeFormlyField<T = any> = (
     | OeFormlyField.InputLine
     | OeFormlyField.SelectLine
     | OeFormlyField.ToggleLine
+    | OeFormlyField.CardLine
     | OeFormlyField.ChildrenLine
     | OeFormlyField.NameLine
     | OeFormlyField.ChannelLine
@@ -480,6 +486,7 @@ export type OeFormlyField<T = any> = (
     | OeFormlyField.DateTimeLine
     | OeFormlyField.HorizontalLine
     | OeFormlyField.ComponentLine
+    | OeFormlyField.ReorderGroupLine
     | OeFormlyField.WeekdayCheckboxLine
     | OeFormlyField.ValueFromChannelsLine
     | OeFormlyField.ValueFromFormControlLine
@@ -506,7 +513,8 @@ export type OeFormlyField<T = any> = (
         | "ion-padding-left"
         | "ion-padding-right"
         | "ion-text-font-style-italic"
-        | "ion-padding-top-triple";
+        | "ion-padding-top-triple"
+        | "ion-font-size-smaller";
     leftColumnWidth?: TIntRange<0, 101>;
 };
 
@@ -536,8 +544,19 @@ export namespace OeFormlyField {
         type: "info-line";
         name?: string | { text: string; lineStyle?: string }[];
         html?: string;
+        customClass?: string;
         icon?: Icon;
-        link?: { text: string; href: string };
+        lineStyle?: string;
+        link?: OeLink;
+    };
+
+    export type CardLine = {
+        type: "card-line";
+        text?: string;
+        html?: string;
+        icon?: Icon;
+        cardStyle?: CardStyle;
+        link?: OeLink;
     };
 
     export type ImageLine = {
@@ -552,6 +571,12 @@ export namespace OeFormlyField {
 
         /** Will be applied on the wrapper component */
         componentWrapperCssClass?: string;
+    };
+
+    export type ReorderGroupLine = {
+        type: "reorder-group-line";
+        controlName: string;
+        items: { value: string; label: string }[];
     };
 
     export type Item = {
@@ -668,6 +693,7 @@ export namespace OeFormlyField {
         type: "name-line";
         name: string | { channel: ChannelAddress; converter: (value: any) => string };
         filter?: Filter;
+        componentCssClass?: string;
     };
 
     export type PercentageBarFromFormControlLine = {
@@ -719,5 +745,25 @@ export namespace OeFormlyField {
         controlName: string;
         label: (controlValue: number | string | null) => string;
         defaultLabel?: string;
+        /** Indicates whether only future values are allowed to be set */
+        onlyFutureValuesAllowed?: boolean;
     };
+}
+
+export namespace OeFormlyAdvancedFields {
+    export const SECTION_TITLE_LINE = (name: string, style: OeFormlyField["style"] = {}): OeFormlyField => ({
+        type: "name-line",
+        name,
+        style: {
+            ...style,
+            name: {
+                color: "var(--ion-text-color-secondary)",
+                fontWeight: "600",
+                fontSize: "small",
+                textTransform: "uppercase",
+                ...style?.name,
+            },
+        },
+        componentCssClass: "ion-display-block ion-padding-top",
+    });
 }

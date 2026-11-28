@@ -135,7 +135,7 @@ public class JsonApiBuilder {
 			final String method, //
 			final ThrowingConsumer<Call<JsonrpcRequest, JsonrpcResponse>, Exception> handler //
 	) {
-		this.addEndpoint(new JsonApiEndpoint(method, (b, call) -> {
+		this.addEndpoint(new JsonApiEndpoint(method, (_, call) -> {
 			try {
 				handler.accept(call);
 			} catch (Exception e) {
@@ -160,7 +160,7 @@ public class JsonApiBuilder {
 	) {
 		final var endpointDef = new EndpointDefinitionBuilder<JsonrpcRequest, JsonrpcResponse>();
 		defBuilder.accept(endpointDef);
-		this.addEndpoint(new JsonApiEndpoint(method, (b, call) -> {
+		this.addEndpoint(new JsonApiEndpoint(method, (_, call) -> {
 			try {
 				for (var guard : endpointDef.getGuards()) {
 					guard.test(call);
@@ -198,7 +198,7 @@ public class JsonApiBuilder {
 		endpointDef.setResponseSerializer(responseSerializer);
 		defBuilder.accept(endpointDef);
 
-		this.addEndpoint(new JsonApiEndpoint(method, (b, t) -> {
+		this.addEndpoint(new JsonApiEndpoint(method, (_, t) -> {
 			for (var guard : endpointDef.getGuards()) {
 				try {
 					guard.test(t);
@@ -244,7 +244,7 @@ public class JsonApiBuilder {
 		endpointDef.setRequestSerializer(serializer);
 		defBuilder.accept(endpointDef);
 
-		this.addEndpoint(new JsonApiEndpoint(method, (b, t) -> {
+		this.addEndpoint(new JsonApiEndpoint(method, (_, t) -> {
 			try {
 				for (var guard : endpointDef.getGuards()) {
 					guard.test(t);
@@ -280,7 +280,7 @@ public class JsonApiBuilder {
 		final var endpointDef = new EndpointDefinitionBuilder<JsonrpcRequest, JsonrpcResponse>();
 		defBuilder.accept(endpointDef);
 
-		this.addEndpoint(new JsonApiEndpoint(method, (b, t) -> {
+		this.addEndpoint(new JsonApiEndpoint(method, (_, t) -> {
 			try {
 				for (var guard : endpointDef.getGuards()) {
 					guard.test(t);
@@ -321,13 +321,16 @@ public class JsonApiBuilder {
 		defBuilder.accept(endpointDef);
 		this.addEndpoint(new JsonApiEndpoint(method, (b, t) -> {
 			try {
+				for (var guard : endpointDef.getGuards()) {
+					guard.test(t);
+				}
 				final var call = t.mapRequest(handler.apply(t));
 				builder.apply(b).handle(call);
 				if (call.getResponse() != null) {
 					t.setResponse(responseMapper.apply(call.getResponse()));
 				}
 			} catch (Exception e) {
-				this.handleException(t, e);
+				t.setResponse(this.handleException(t, e));
 			}
 		}, endpointDef, subroutes));
 		return this;
@@ -542,7 +545,7 @@ public class JsonApiBuilder {
 			this.builder.add(builder);
 			builder.addEndpointAddedListener(this.endpointAddedListener);
 			builder.addEndpointRemovedListener(this.endpointRemovedListener);
-			builder.getEndpoints().forEach((t, u) -> this.addEndpoint(u));
+			builder.getEndpoints().forEach((_, u) -> this.addEndpoint(u));
 		}
 	}
 
@@ -557,7 +560,7 @@ public class JsonApiBuilder {
 			this.builder.remove(builder);
 			builder.removeEndpointAddedListener(this.endpointAddedListener);
 			builder.removeEndpointRemovedListener(this.endpointRemovedListener);
-			builder.getEndpoints().forEach((t, u) -> this.removeEndpoint(t));
+			builder.getEndpoints().forEach((t, _) -> this.removeEndpoint(t));
 		}
 	}
 

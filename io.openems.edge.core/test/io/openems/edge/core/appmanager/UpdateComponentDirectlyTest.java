@@ -22,7 +22,7 @@ public class UpdateComponentDirectlyTest {
 
 	@BeforeEach
 	public void setUp() throws Exception {
-		this.appManagerTestBundle = new AppManagerTestBundle(null, null, t -> {
+		this.appManagerTestBundle = new AppManagerTestBundle(null, null, _ -> {
 			return ImmutableList.of(//
 
 			);
@@ -33,7 +33,7 @@ public class UpdateComponentDirectlyTest {
 	public void testAdminOnlyAsInstaller() throws OpenemsNamedException {
 		final var testTest = List.of(new UpdateComponentConfigRequest.Property("id", "evcs1"),
 				new UpdateComponentConfigRequest.Property("debugMode", false));
-		this.appManagerTestBundle.componentManger.handleCreateComponentConfigRequest(DUMMY_ADMIN,
+		this.appManagerTestBundle.componentManger.handleCreateComponentConfigRequestGuarded(DUMMY_ADMIN,
 				new CreateComponentConfig.Request("Evcs.Keba.KeContact", testTest));
 		this.appManagerTestBundle.sut.handleUpdateAppConfigRequest(DUMMY_ADMIN,
 				new UpdateAppConfig.Request("evcs1", JsonUtils.buildJsonObject().addProperty("debugMode", true)//

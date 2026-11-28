@@ -1,7 +1,7 @@
 package io.openems.edge.meter.kdk.puct2;
 
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_3;
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_3_AND_INVERT_IF_TRUE;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_3;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_3_AND_INVERT_IF_TRUE;
 
 import java.util.function.Consumer;
 
@@ -260,15 +260,15 @@ public class MeterKdk2puctImpl extends AbstractOpenemsModbusComponent
 	 * Sets and updates the power and current channels.
 	 */
 	private void setUpdatedCurrentAndPowerChannels() {
-		this.getSofwareVersionCheckSumChannel().onSetNextValue(value -> {
+		this.getSofwareVersionCheckSumChannel().onSetNextValue(_ -> {
 			this.updateCtRatio();
 		});
 
-		this.getPrimaryCurrentChannel().onSetNextValue(value -> {
+		this.getPrimaryCurrentChannel().onSetNextValue(_ -> {
 			this.updateCtRatio();
 		});
 
-		this.getSecondaryCurrentChannel().onSetNextValue(value -> {
+		this.getSecondaryCurrentChannel().onSetNextValue(_ -> {
 			this.updateCtRatio();
 		});
 

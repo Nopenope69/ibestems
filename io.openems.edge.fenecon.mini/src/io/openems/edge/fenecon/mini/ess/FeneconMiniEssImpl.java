@@ -1,7 +1,7 @@
 package io.openems.edge.fenecon.mini.ess;
 
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_2;
 import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SUBTRACT;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_2;
 import static io.openems.edge.common.channel.ChannelUtils.setValue;
 import static io.openems.edge.common.type.Phase.SingleOrAllPhase.ALL;
 import static io.openems.edge.ess.power.api.Pwr.ACTIVE;
@@ -138,7 +138,7 @@ public class FeneconMiniEssImpl extends AbstractOpenemsModbusComponent
 		SinglePhaseEss.initializeCopyPhaseChannel(this, config.phase());
 
 		// Calculate Allowed Charge and Discharge Power
-		final Consumer<Value<Integer>> calculateAllowedChargeDischargePower = ignore -> {
+		final Consumer<Value<Integer>> calculateAllowedChargeDischargePower = _ -> {
 			var voltage = this.getBecu1TotalVoltageChannel().getNextValue();
 			var chargeCurrent = this.getBecu1AllowedChargeCurrentChannel().getNextValue();
 			var dischargeCurrent = this.getBecu1AllowedDischargeCurrentChannel().getNextValue();

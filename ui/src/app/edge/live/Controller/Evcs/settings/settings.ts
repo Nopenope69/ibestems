@@ -8,7 +8,10 @@ import { Converter } from "src/app/shared/components/shared/converter";
 import { DataService } from "src/app/shared/components/shared/dataservice";
 import { AbstractFormlyComponent, OeFormlyField, OeFormlyView, } from "src/app/shared/components/shared/oe-formly-component";
 import { ChannelAddress, CurrentData, Edge, EdgeConfig, Service, Websocket } from "src/app/shared/shared";
+import { Language } from "src/app/shared/type/language";
 import { AssertionUtils } from "src/app/shared/utils/assertions/assertions.utils";
+import { DocsUtils } from "src/app/shared/utils/docs/docs.utils";
+import { environment } from "src/environments";
 import { LiveDataService } from "../../../livedataservice";
 import { CONVERT_EVCS_STATUS } from "../new-navigation/new-navigation";
 import { SharedEvcs } from "../shared/shared";
@@ -53,8 +56,19 @@ export class EvcsSettingsComponent extends AbstractFormlyComponent<EvcsSettingsV
         const IS_NOT_EXCESS_POWER = (el: EvcsSettingsViewModel) => el.chargeMode !== "EXCESS_POWER";
         const IS_OFF_OR_NULL = (el: EvcsSettingsViewModel) => el.chargeMode === "OFF" || el.chargeMode == null;
         const IS_NO_MIN_GUARANTEE = (el: EvcsSettingsViewModel) => el.chargeMode !== "EXCESS_POWER" || !el.minGuarantee;
-        const SHOW_WARNING_MIN_GARUNTEE = (el: EvcsSettingsViewModel) => el.minGuarantee;
+        const SHOW_WARNING_MIN_GUARANTEE = (el: EvcsSettingsViewModel) => el.minGuarantee;
         const IS_NO_ENERGY_LIMIT = (el: EvcsSettingsViewModel) => IS_OFF_OR_NULL(el) || !el.energyLimit;
+
+        const hwPower = (property: string, phases: number, round: (v: number) => number): number | null => {
+            const total = component.getPropertyFromComponent<number>(property);
+            return total == null ? null : round(total / phases / 100) * 100;
+        };
+        // forceChargeMinPower is configured per phase, defaultChargeMinPower as total power
+        const minPowerPerPhase = hwPower("minHwPower", 3, Math.ceil);
+        const maxPowerPerPhase = hwPower("maxHwPower", 3, Math.floor);
+        const minPowerTotal = hwPower("minHwPower", 1, Math.ceil);
+        const maxPowerTotal = hwPower("maxHwPower", 1, Math.floor);
+        const hasHwPowerConfig = minPowerPerPhase != null || maxPowerPerPhase != null;
 
         const lines: OeFormlyField<EvcsSettingsViewModel>[] = [
             // Read-only status
@@ -111,24 +125,25 @@ export class EvcsSettingsComponent extends AbstractFormlyComponent<EvcsSettingsV
             },
             {
                 type: "info-line",
-                name: [
-                    {
-                        text: translate.instant("EDGE.INDEX.WIDGETS.EVCS.KEBA_WARNING"),
-                        lineStyle:
-                            "color:#d32f2f; font-size:0.85em; padding:6px 12px; border:1px solid #d32f2f; border-radius:4px;",
-                    },
-                ],
-                link: {
-                    text: translate.instant("EDGE.INDEX.WIDGETS.EVCS.LINK_TO_DOCUMENTATION"),
-                    href: "https://docs.intranet.fenecon.de/feature/how_to_restart_KEBA_P40/fenecon/de/emobility/Installationsanleitung_KEBA_P40.html#_kommunikationsausfall_zwischen_keba_p40p40_pro_und_fems",
-                },
-                hide: (el) => SHOW_WARNING_MIN_GARUNTEE(el) || ctrl == null || component.factoryId !== "Evcs.Keba.P40",
+                html: translate.instant("EDGE.INDEX.WIDGETS.EVCS.KEBA_WARNING", {
+                    environment: environment.edgeLongName,
+                    link: DocsUtils.replaceDocsLanguage(
+                        environment.links.REDIRECT.EVCS_KEBA_HELP,
+                        Language.getDocsLang(translate.getCurrentLang()),
+                    ),
+                }),
+                customClass: "ion-border-danger ion-font-color-danger ion-font-size-larger",
+                hide: (el) => SHOW_WARNING_MIN_GUARANTEE(el) || ctrl == null || component.factoryId !== "Evcs.Keba.P40",
             },
             { type: "horizontal-line" },
             // ── Force charge settings ──────────────────────────────────
             {
                 type: "value-from-form-control-line",
-                name: translate.instant("EDGE.INDEX.WIDGETS.EVCS.FORCE_CHARGE_MODE.MAX_CHARGING"),
+                name: translate.instant(
+                    hasHwPowerConfig
+                        ? "EDGE.INDEX.WIDGETS.EVCS.FORCE_CHARGE_MODE.MAX_CHARGING_PER_PHASE"
+                        : "EDGE.INDEX.WIDGETS.EVCS.FORCE_CHARGE_MODE.MAX_CHARGING",
+                ),
                 controlName: "forceChargeMinPower",
                 converter: Converter.POWER_IN_WATT,
                 hide: (el) => IS_NOT_FORCE_CHARGE(el) || ctrl == null,
@@ -137,8 +152,8 @@ export class EvcsSettingsComponent extends AbstractFormlyComponent<EvcsSettingsV
                 type: "range-button-from-form-control-line",
                 controlName: "forceChargeMinPower",
                 properties: {
-                    tickMin: minChargePower,
-                    tickMax: maxChargePower,
+                    tickMin: minPowerPerPhase ?? minChargePower,
+                    tickMax: maxPowerPerPhase ?? maxChargePower,
                     step: 100,
                     unit: "W",
                     pinFormatter: (val: number) => Converter.POWER_IN_WATT(val),
@@ -164,8 +179,8 @@ export class EvcsSettingsComponent extends AbstractFormlyComponent<EvcsSettingsV
                 type: "range-button-from-form-control-line",
                 controlName: "defaultChargeMinPower",
                 properties: {
-                    tickMin: minChargePower,
-                    tickMax: maxChargePower,
+                    tickMin: minPowerTotal ?? minChargePower,
+                    tickMax: maxPowerTotal ?? maxChargePower,
                     step: 100,
                     unit: "W",
                     pinFormatter: (val: number) => Converter.POWER_IN_WATT(val),

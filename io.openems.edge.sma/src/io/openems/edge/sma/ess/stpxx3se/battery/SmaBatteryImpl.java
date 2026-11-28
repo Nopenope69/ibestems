@@ -1,7 +1,7 @@
 package io.openems.edge.sma.ess.stpxx3se.battery;
 
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_MINUS_2;
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_MINUS_3;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_MINUS_2;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_MINUS_3;
 import static org.osgi.service.component.annotations.ReferenceCardinality.MANDATORY;
 import static org.osgi.service.component.annotations.ReferencePolicy.STATIC;
 import static org.osgi.service.component.annotations.ReferencePolicyOption.GREEDY;
@@ -138,7 +138,7 @@ public class SmaBatteryImpl extends AbstractOpenemsModbusComponent
 	}
 
 	private void limitMinMaxVoltages() {
-		this.getCapacityChannel().onChange((o, n) -> {
+		this.getCapacityChannel().onChange((_, n) -> {
 			if (n == null || !n.isDefined()) {
 				return;
 			}

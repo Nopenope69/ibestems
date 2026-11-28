@@ -33,13 +33,14 @@ public class ReplaceUserJsonApiHandler implements JsonApi {
 		}, call -> {
 			final var request = ReplaceUser.Request.serializer().deserialize(call.getRequest().getParams());
 
-			// Replace user
+			// Replace user; never allow assuming a Role above the caller's own
 			final var user = call.get(EdgeKeys.USER_KEY);
+			Role.assertRoleIsAtLeast(user.getId(), user.getRole(), request.role(), "ReplaceUser");
 			call.put(EdgeKeys.USER_KEY, new User(user.getId(), user.getName(), request.language(), request.role()));
 
 			return new EdgeRpcRequest(ControllerApiWebsocket.EDGE_ID,
 					GenericJsonrpcRequest.from(request.request().getAsJsonObject()));
-		}, b -> this.builder, Function.identity(), Collections::emptyList);
+		}, _ -> this.builder, Function.identity(), Collections::emptyList);
 	}
 
 	public void setBuilder(JsonApiBuilder builder) {

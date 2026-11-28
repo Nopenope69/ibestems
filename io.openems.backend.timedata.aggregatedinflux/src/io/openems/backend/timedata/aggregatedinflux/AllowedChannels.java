@@ -113,6 +113,7 @@ public final class AllowedChannels {
 				.put("ctrlGridOptimizedCharge0/SellToGridLimitMinimumChargeLimit", DataType.LONG) //
 				.put("ctrlEssTimeOfUseTariff0/QuarterlyPrices", DataType.DOUBLE) //
 				.put("ctrlEssTimeOfUseTariff0/StateMachine", DataType.LONG) //
+				.put("ctrlEssSingle0/ActualMode", DataType.LONG) //
 				.putAll(multiChannels(evcs, "ChargePower", DataType.LONG)) //
 				.putAll(multiChannels(evcs, "ActivePower", DataType.LONG)) //
 				.putAll(multiChannels(evcs, "ActivePowerL", 1, 4, DataType.LONG)) //
@@ -185,6 +186,9 @@ public final class AllowedChannels {
 				.putAll(multiChannels(ctrlIoHeatingElement, "Level1CumulatedTime", DataType.LONG)) //
 				.putAll(multiChannels(ctrlIoHeatingElement, "Level2CumulatedTime", DataType.LONG)) //
 				.putAll(multiChannels(ctrlIoHeatingElement, "Level3CumulatedTime", DataType.LONG)) //
+				.putAll(multiChannels(ctrlIoHeatingElement, "Level4CumulatedTime", DataType.LONG)) //
+				.putAll(multiChannels(ctrlIoHeatingElement, "Level5CumulatedTime", DataType.LONG)) //
+				.putAll(multiChannels(ctrlIoHeatingElement, "Level6CumulatedTime", DataType.LONG)) //
 				.put("ctrlChpSoc0/CumulatedActiveTime", DataType.LONG) //
 				.put("ctrlFixActivePower0/CumulatedActiveTime", DataType.LONG) //
 				.putAll(multiChannels("ctrlChannelThreshold", 0, 5, "CumulatedActiveTime", DataType.LONG)) //
@@ -334,7 +338,9 @@ public final class AllowedChannels {
 		return IntStream.range(from, to) //
 				.mapToObj(componentNumber -> {
 					return component + componentNumber + "/" + channelOfComponent;
-				}).collect(Collectors.toMap(t -> t, t -> type)).entrySet();
+				}) //
+				.collect(Collectors.toMap(t -> t, _ -> type)) //
+				.entrySet();
 	}
 
 	protected static Iterable<Entry<String, DataType>> multiChannels(//
@@ -366,7 +372,10 @@ public final class AllowedChannels {
 							.mapToObj(channelNumber -> {
 								return component + componentNumber + "/" + channelOfComponent + channelNumber;
 							});
-				}).flatMap(t -> t).collect(Collectors.toMap(t -> t, t -> type)).entrySet();
+				}) //
+				.flatMap(t -> t) //
+				.collect(Collectors.toMap(t -> t, _ -> type)) //
+				.entrySet();
 	}
 
 }

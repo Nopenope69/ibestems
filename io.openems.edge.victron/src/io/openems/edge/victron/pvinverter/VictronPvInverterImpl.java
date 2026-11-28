@@ -1,7 +1,7 @@
 package io.openems.edge.victron.pvinverter;
 
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_1;
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_2;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_1;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_2;
 import static org.osgi.service.component.annotations.ConfigurationPolicy.REQUIRE;
 import static org.osgi.service.component.annotations.ReferenceCardinality.MANDATORY;
 import static org.osgi.service.component.annotations.ReferencePolicy.STATIC;
@@ -83,7 +83,7 @@ public class VictronPvInverterImpl extends AbstractOpenemsModbusComponent
 	}
 
 	private void installListener() {
-		final Consumer<Value<Long>> productionEnergySum = ignore -> {
+		final Consumer<Value<Long>> productionEnergySum = _ -> {
 			this._setActiveProductionEnergy(
 					TypeUtils.sum(this.getActiveProductionEnergyL1Channel().getNextValue().get(), //
 							this.getActiveProductionEnergyL2Channel().getNextValue().get(), //

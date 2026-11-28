@@ -13,6 +13,7 @@ import { CommonGridExternalLimitationOverviewComponent } from "src/app/edge/live
 import { CommonGridPhaseAccurateOverviewComponent } from "src/app/edge/live/common/grid/history/details/phase-accurate/new-navigation/new-navigation";
 import { CommonGridHistoryComponent } from "src/app/edge/live/common/grid/history/new-navigation/new-navigation";
 import { CommonGridHomeComponent } from "src/app/edge/live/common/grid/new-navigation/new-navigation";
+import { CommonGridSettingsComponent } from "src/app/edge/live/common/grid/settings/settings";
 import { CommonProductionDetailsComponent } from "src/app/edge/live/common/production/details/details";
 import { CommonProductionHistoryComponent } from "src/app/edge/live/common/production/history/new-navigation/new-navigation";
 import { CommonProductionSingleHistoryOverviewComponent } from "src/app/edge/live/common/production/history/phase-accurate/new-navigation/phase-accurate";
@@ -68,6 +69,8 @@ import { ControllerIoChannelSingleThresholdHomeComponent } from "src/app/edge/li
 import { ControllerIoChannelSingleThresholdSettingsComponent } from "src/app/edge/live/Controller/Io/ChannelSingleThreshold/settings/settings";
 import { FixDigitalDetailsComponent } from "src/app/edge/live/Controller/Io/FixDigitalOutput/history/details/new-navigation/details";
 import { ControllerFixDigitalOutputHomeComponent } from "src/app/edge/live/Controller/Io/FixDigitalOutput/new-navigation/new-navigation";
+import { ControllerIoHeatingElementBaseModeComponent } from "src/app/edge/live/Controller/Io/HeatingElement/basemode/basemode";
+import { canActivateHeatingElementBaseMode } from "src/app/edge/live/Controller/Io/HeatingElement/basemode/basemode-guard";
 import { ControllerHeatingElementHistoryComponent } from "src/app/edge/live/Controller/Io/HeatingElement/history/new-navigation/new-navigation";
 import { ControllerIoHeatingElementHomeComponent } from "src/app/edge/live/Controller/Io/HeatingElement/new-navigation/new-navigation";
 import { ControllerIoHeatingElementSettingsComponent } from "src/app/edge/live/Controller/Io/HeatingElement/settings/settings";
@@ -94,6 +97,7 @@ import { ControllerPeakShavingSymmetricTimeSlotHomeComponent } from "src/app/edg
 import { ControllerPeakShavingSymmetricTimeSlotSettingsComponent } from "src/app/edge/live/Controller/peak-shaving/Symmetric_TimeSlot/settings/settings";
 import { ControllerEssFixReactivePowerComponent } from "src/app/edge/live/Controller/symmetric/FixReactivePower/new-navigation/new-navigation";
 import { LiveComponent as EdgeLiveComponent } from "src/app/edge/live/live.component";
+import { EvcsApiClusterHomeComponent } from "src/app/edge/live/Multiple/evcs-api-cluster/new-navigation/new-navigation";
 import { NavigationInfoComponent } from "src/app/edge/live/navigation-info/navigation-info";
 import { SchedulerJsCalendarComponent } from "src/app/edge/live/scheduler/js-calendar/new-navigation";
 import { ScheduleJsCalendarComponent } from "src/app/edge/live/scheduler/js-calendar/schedule/schedule.component";
@@ -272,6 +276,11 @@ const controllerRoutes: (suffix: string | null) => Routes = (prefix: string | nu
             component: ControllerIoHeatingElementHomeComponent,
         },
         {
+            path: "controller/heatingelement/:componentId/base-mode",
+            component: ControllerIoHeatingElementBaseModeComponent,
+            canActivate: [canActivateHeatingElementBaseMode],
+        },
+        {
             path: "controller/heatingelement/:componentId/settings",
             component: ControllerIoHeatingElementSettingsComponent,
         },
@@ -448,6 +457,11 @@ const controllerRoutes: (suffix: string | null) => Routes = (prefix: string | nu
             component: ControllerIoHeatingElementHomeComponent,
         },
         {
+            path: "controller/heatingelement/:componentId/base-mode",
+            component: ControllerIoHeatingElementBaseModeComponent,
+            canActivate: [canActivateHeatingElementBaseMode],
+        },
+        {
             path: "controller/heatingelement/:componentId/settings",
             component: ControllerIoHeatingElementSettingsComponent,
         },
@@ -501,18 +515,18 @@ const controllerRoutes: (suffix: string | null) => Routes = (prefix: string | nu
         },
         {
             path: "controller/evcs-cluster",
-            component: ControllerGroupListComponent,
+            component: EvcsApiClusterHomeComponent,
         },
         {
-            path: "controller/evcs-cluster/evcs/:componentId",
+            path: "controller/evcs-cluster/:componentId",
             component: EvcsHomeComponent,
         },
         {
-            path: "controller/evcs-cluster/evcs/:componentId/settings",
+            path: "controller/evcs-cluster/:componentId/settings",
             component: EvcsSettingsComponent,
         },
         {
-            path: "controller/evcs-cluster/evcs/:componentId/history",
+            path: "controller/evcs-cluster/:componentId/history",
             component: CommonConsumptionSingleHistoryOverviewComponent,
         },
         {
@@ -557,6 +571,7 @@ export const commonRoutes: Routes = [
     },
     ...controllerRoutes("common/consumption"),
     { path: "common/grid", component: CommonGridHomeComponent },
+    { path: "common/grid/settings", component: CommonGridSettingsComponent },
     { path: "common/grid/history", component: CommonGridHistoryComponent },
     {
         path: "common/grid/history/external-limitation",

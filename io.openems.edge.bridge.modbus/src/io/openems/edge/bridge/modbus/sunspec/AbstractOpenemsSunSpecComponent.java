@@ -1,6 +1,7 @@
 package io.openems.edge.bridge.modbus.sunspec;
 
 import static com.ghgande.j2mod.modbus.Modbus.ILLEGAL_ADDRESS_EXCEPTION;
+import static io.openems.common.utils.GathererUtils.filterIsInstance;
 import static io.openems.edge.bridge.modbus.api.ModbusUtils.readElementOnce;
 import static io.openems.edge.bridge.modbus.api.ModbusUtils.readElementsOnce;
 import static io.openems.edge.bridge.modbus.api.ModbusUtils.FunctionCode.FC3;
@@ -211,7 +212,7 @@ public abstract class AbstractOpenemsSunSpecComponent extends AbstractOpenemsMod
 				throw new IllegalArgumentException("This modbus device is not SunSpec!");
 			}
 
-			return this.readNextBlock(40_002, expectedBlocks, 0).whenComplete((result, error) -> {
+			return this.readNextBlock(40_002, expectedBlocks, 0).whenComplete((_, error) -> {
 				if (error != null) {
 					this.log.error("Error during SunSpec initialization", error);
 					return;
@@ -317,7 +318,7 @@ public abstract class AbstractOpenemsSunSpecComponent extends AbstractOpenemsMod
 					var blockCounter = commonBlockCounter;
 
 					var values = rer.values();
-					var blockId = values.get(0);
+					var blockId = values.getFirst();
 
 					this.log.debug("Read next SunSpec value at " + startAddress + ", blockId=" + blockId);
 					// END_OF_MAP
@@ -467,12 +468,12 @@ public abstract class AbstractOpenemsSunSpecComponent extends AbstractOpenemsMod
 		for (var elements : preprocessModbusElements(readElements)) {
 			this.modbusProtocol.addTask(//
 					new FC3ReadRegistersTask(//
-							elements.get(0).startAddress, priority, elements.toArray(ModbusElement[]::new)));
+							elements.getFirst().startAddress, priority, elements.toArray(ModbusElement[]::new)));
 		}
 		for (var elements : preprocessModbusElements(writeElements)) {
 			this.modbusProtocol.addTask(//
 					new FC16WriteRegistersTask(//
-							elements.get(0).startAddress, elements.toArray(ModbusElement[]::new)));
+							elements.getFirst().startAddress, elements.toArray(ModbusElement[]::new)));
 		}
 	}
 
@@ -524,7 +525,7 @@ public abstract class AbstractOpenemsSunSpecComponent extends AbstractOpenemsMod
 			yield List.of(element);
 		}
 
-		case ChannelIdPoint cip -> List.of();
+		case ChannelIdPoint _ -> List.of();
 		};
 	}
 
@@ -545,9 +546,9 @@ public abstract class AbstractOpenemsSunSpecComponent extends AbstractOpenemsMod
 		var result = Lists.<List<ModbusElement>>newArrayList(Lists.<ModbusElement>newArrayList());
 		for (var element : elements) {
 			// Get last sublist in result
-			var l = result.get(result.size() - 1);
+			var l = result.getLast();
 			// Get last element of sublist
-			var e = l.isEmpty() ? null : l.get(l.size() - 1);
+			var e = l.isEmpty() ? null : l.getLast();
 			if ((
 			// Is first element of the sublist?
 			e == null
@@ -564,7 +565,7 @@ public abstract class AbstractOpenemsSunSpecComponent extends AbstractOpenemsMod
 		}
 
 		// Avoid length check for sublist
-		if (result.get(0).isEmpty()) {
+		if (result.getFirst().isEmpty()) {
 			return List.of();
 		}
 		return result;
@@ -596,8 +597,7 @@ public abstract class AbstractOpenemsSunSpecComponent extends AbstractOpenemsMod
 			yield Stream.of(model.points()) //
 					.filter(p -> p.name().equals(scaleFactorName)) //
 					.map(SunSpecPoint::get) //
-					.filter(ScaleFactorPoint.class::isInstance) //
-					.map(ScaleFactorPoint.class::cast) //
+					.gather(filterIsInstance(ScaleFactorPoint.class)) //
 					.map(sfp -> new ElementToChannelScaleFactorConverter(this, svp, sfp.channelId)) //
 					// Found matching Scale-Factor Point in SunSpec Model
 					.findFirst()

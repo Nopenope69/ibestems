@@ -401,12 +401,12 @@ public class Rrd4jSupplier {
 		return result;
 	}
 
-	private class KeyLock {
+	private static class KeyLock {
 
 		private final Map<String, Object> locks = new ConcurrentHashMap<>();
 
 		public <T, E extends Exception> T lock(String key, ThrowingSupplier<T, E> supplier) throws E {
-			synchronized (this.locks.computeIfAbsent(key, t -> new Object())) {
+			synchronized (this.locks.computeIfAbsent(key, _ -> new Object())) {
 				return supplier.get();
 			}
 		}

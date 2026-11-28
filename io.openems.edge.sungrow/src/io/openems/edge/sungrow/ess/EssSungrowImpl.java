@@ -1,8 +1,8 @@
 package io.openems.edge.sungrow.ess;
 
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_1;
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_2;
-import static io.openems.edge.bridge.modbus.api.ElementToChannelConverter.SCALE_FACTOR_MINUS_1;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_1;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_2;
+import static io.openems.edge.bridge.modbus.api.ElementToChannelConverters.SCALE_FACTOR_MINUS_1;
 import static io.openems.edge.common.channel.ChannelUtils.setValue;
 import static org.osgi.service.component.annotations.ReferenceCardinality.MANDATORY;
 import static org.osgi.service.component.annotations.ReferencePolicy.STATIC;
@@ -136,7 +136,7 @@ public class EssSungrowImpl extends AbstractOpenemsModbusComponent implements Es
 	 * and pv power.
 	 */
 	private void installDcDischargePowerListener() {
-		final Consumer<Value<Integer>> dcDischarge = ignore -> {
+		final Consumer<Value<Integer>> dcDischarge = _ -> {
 			setValue(this, HybridEss.ChannelId.DC_DISCHARGE_POWER, //
 					TypeUtils.subtract(this.getActivePower().get(), this.getTotalDcPower().get()));
 		};
@@ -149,7 +149,7 @@ public class EssSungrowImpl extends AbstractOpenemsModbusComponent implements Es
 	 * voltage and the charge max current.
 	 */
 	private void installAllowedChargePowerListener() {
-		final Consumer<Value<Integer>> allowedCharge = ignore -> {
+		final Consumer<Value<Integer>> allowedCharge = _ -> {
 			setValue(this, ManagedSymmetricEss.ChannelId.ALLOWED_CHARGE_POWER, //
 					// set to 0 if either value is undefined
 					-this.getBatteryVoltage().orElse(0) * this.getChargeMaxCurrent().orElse(0));
@@ -163,7 +163,7 @@ public class EssSungrowImpl extends AbstractOpenemsModbusComponent implements Es
 	 * voltage and the discharge max current.
 	 */
 	private void installAllowedDischargePowerListener() {
-		final Consumer<Value<Integer>> allowedDischarge = ignore -> {
+		final Consumer<Value<Integer>> allowedDischarge = _ -> {
 			setValue(this, ManagedSymmetricEss.ChannelId.ALLOWED_DISCHARGE_POWER, //
 					// set to 0 if either value is undefined
 					this.getBatteryVoltage().orElse(0) * this.getDischargeMaxCurrent().orElse(0));

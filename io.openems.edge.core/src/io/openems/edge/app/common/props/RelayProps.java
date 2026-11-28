@@ -13,6 +13,7 @@ import static java.util.stream.Collectors.joining;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.ResourceBundle;
 import java.util.function.BiFunction;
@@ -76,13 +77,13 @@ public final class RelayProps {
 
 		public RelayContactFilter {
 			if (componentFilter == null) {
-				componentFilter = t -> true;
+				componentFilter = _ -> true;
 			}
 			if (channelFilter == null) {
-				channelFilter = (t, d) -> true;
+				channelFilter = (_, _) -> true;
 			}
 			if (disabledReasons == null) {
-				disabledReasons = (t, d) -> emptyList();
+				disabledReasons = (_, _) -> emptyList();
 			}
 		}
 
@@ -94,7 +95,7 @@ public final class RelayProps {
 		 * @return a new {@link RelayContactFilter}
 		 */
 		public RelayContactFilter withComponentFilter(Predicate<DigitalOutput> componentFilter) {
-			return new RelayContactFilter(componentFilter == null ? t -> true : componentFilter,
+			return new RelayContactFilter(componentFilter == null ? _ -> true : componentFilter,
 					this.componentAliasMapper, this.channelFilter, this.channelAliasMapper, this.disabledReasons);
 		}
 
@@ -119,7 +120,7 @@ public final class RelayProps {
 		 */
 		public RelayContactFilter withChannelFilter(BiPredicate<DigitalOutput, BooleanWriteChannel> channelFilter) {
 			return new RelayContactFilter(this.componentFilter, this.componentAliasMapper,
-					channelFilter == null ? (t, u) -> true : channelFilter, this.channelAliasMapper,
+					channelFilter == null ? (_, _) -> true : channelFilter, this.channelAliasMapper,
 					this.disabledReasons);
 		}
 
@@ -146,7 +147,7 @@ public final class RelayProps {
 		public RelayContactFilter withDisabledReasons(
 				BiFunction<DigitalOutput, BooleanWriteChannel, List<String>> disabledReasons) {
 			return new RelayContactFilter(this.componentFilter, this.componentAliasMapper, this.channelFilter,
-					this.channelAliasMapper, disabledReasons == null ? (t, u) -> emptyList() : disabledReasons);
+					this.channelAliasMapper, disabledReasons == null ? (_, _) -> emptyList() : disabledReasons);
 		}
 
 	}
@@ -346,8 +347,8 @@ public final class RelayProps {
 				case "Relay1" -> translate(bundle, "relay.harting10pole.description", 1, 3, 4, 230, 10);
 				case "Relay2" -> translate(bundle, "relay.harting10pole.description", 2, 5, 6, 230, 10);
 				case "Relay3" -> translate(bundle, "relay.harting10pole.description", 3, 7, 8, 230, 10);
-				case "Relay4" -> translate(bundle, "relay.harting10pole.description", 4, 9, 10, 24, 2);
-				case "Relay5" -> translate(bundle, "relay.harting10pole.description", 5, 1, 2, 24, 2);
+				case "Relay4" -> translate(bundle, "relay.harting16pole.description", 4, 5, 6, 24, 2);
+				case "Relay5" -> translate(bundle, "relay.harting16pole.description", 5, 7, 8, 24, 2);
 				default -> null;
 				};
 			default -> null;
@@ -369,7 +370,7 @@ public final class RelayProps {
 				.withChannelFilter((component, channel) -> //
 				!("io0".equals(component.id())
 						&& channelFilter.stream().anyMatch(c -> c.equals(channel.channelId().id())))) //
-				.withChannelAliasMapper((component, channel) -> relayAliasMapper(bundle, channel)) //
+				.withChannelAliasMapper((_, channel) -> relayAliasMapper(bundle, channel)) //
 				.withDisabledReasons((component, channel) -> {
 					if (!onlyHighVoltageRelays) {
 						return emptyList();
@@ -417,7 +418,7 @@ public final class RelayProps {
 			AppDef<OpenemsApp, Nameable, P> relayContactDef(boolean isMulti, int contactPosition,
 					Nameable... allContacts) {
 		return AppDef.copyOfGeneric(defaultDef(), def -> {
-			def.setDefaultValue((app, property, l, parameter) -> {
+			def.setDefaultValue((_, _, _, parameter) -> {
 				final var preferredRelay = parameter.relayContactInformation().preferredRelays[contactPosition - 1];
 				final var value = preferredRelay == null ? JsonNull.INSTANCE : new JsonPrimitive(preferredRelay);
 				if (isMulti) {
@@ -430,7 +431,7 @@ public final class RelayProps {
 				}
 				return value;
 			});
-			def.setField(JsonFormlyUtil::buildSelectGroupFromNameable, (app, property, l, parameter, field) -> {
+			def.setField(JsonFormlyUtil::buildSelectGroupFromNameable, (_, property, _, parameter, field) -> {
 				field.setMulti(isMulti);
 				field.setMissingOptionsText(translate(parameter.bundle(), "relay.missingOptions"));
 
@@ -474,7 +475,10 @@ public final class RelayProps {
 						channelInfo) -> {
 					final var isDefault = information.defaultRelays().stream() //
 							.filter(t -> t.matchesRelay().test(relayInfo)) //
-							.map(t -> t.preferredRelays()).findAny() //
+							.map(PreferredRelay::preferredRelays) //
+							// Preferred relay definitions may cover only some requested contacts.
+							.filter(t -> t.length >= contactPosition) //
+							.findAny() //
 							.map(t -> relayInfo.channels().stream()
 									.filter(r -> r.position() == t[contactPosition - 1] - 1) //
 									.findAny().map(channelInfo::equals).orElse(false))
@@ -536,20 +540,64 @@ public final class RelayProps {
 			P extends BundleProvider> AppDef<APP, PROP, P> phaseGroup(//
 					PROP... phaseDefs //
 	) {
+		return phaseGroup(Map.of(), phaseDefs);
+	}
+
+	/**
+	 * Creates a {@link AppDef} for a group of relay contacts that must be unique.
+	 *
+	 * @param <APP>            the type of the app
+	 * @param <PROP>           the type of the property
+	 * @param <P>              the type of parameter
+	 * @param activeConditions optional active conditions for relay contacts;
+	 *                         contacts without a condition are always active
+	 * @param phaseDefs        the {@link AppDef AppDefs} of the relay contacts
+	 * @return the {@link AppDef}
+	 */
+	@SafeVarargs
+	public static <APP extends OpenemsApp, //
+			PROP extends Nameable & Type<PROP, APP, P>, //
+			P extends BundleProvider> AppDef<APP, PROP, P> phaseGroup(//
+					Map<PROP, BooleanExpression> activeConditions, //
+					PROP... phaseDefs //
+	) {
 		return AppDef.copyOfGeneric(defaultDef(), def -> {
-			def.setField(JsonFormlyUtil::buildFieldGroupFromNameable, (app, property, l, parameter, field) -> {
+			def.setField(JsonFormlyUtil::buildFieldGroupFromNameable, (app, _, l, parameter, field) -> {
+				final var propertyToShowError = Arrays.stream(phaseDefs) //
+						.filter(phaseDef -> !activeConditions.containsKey(phaseDef)) //
+						.reduce((_, last) -> last) //
+						.orElse(phaseDefs[phaseDefs.length - 1]);
 
 				for (var phaseDef : phaseDefs) {
-					final var array = Exp.array(Arrays.stream(phaseDefs).filter(t -> t != phaseDef)
-							.map(Exp::currentModelValue).toArray(Variable[]::new));
+					final var currentContact = activeConditions.containsKey(phaseDef) //
+							? activeConditions.get(phaseDef).ifElse(Exp.currentModelValue(phaseDef), //
+									Exp.dynamic("null"))//
+							: Exp.currentModelValue(phaseDef);
+					final var otherContactValues = Exp//
+							.array(Arrays.stream(phaseDefs).filter(t -> t != phaseDef)
+									.map(t -> activeConditions.containsKey(t)//
+											? activeConditions.get(t).ifElse(Exp.currentModelValue(t), //
+													Exp.dynamic("null"))//
+											: Exp.currentModelValue(t))
+									.toArray(Variable[]::new)) //
+							.filter(Variable::notNull);
 
-					final var expression = array.every(t -> Exp.currentModelValue(phaseDef).notEqual(t));
+					final var expression = currentContact.isNull()//
+							.or(otherContactValues.every(currentContact::notEqual));
 					final var errorMessage = getTranslation(parameter.bundle(), "relay.duplicatedRelayContactSelected");
 					field.setCustomValidation(phaseDef.name() + "_VALIDATION", expression,
-							StringExpression.of(errorMessage), phaseDefs[phaseDefs.length - 1]);
+							StringExpression.of(errorMessage), propertyToShowError);
 				}
 				field.setFieldGroup(Arrays.stream(phaseDefs) //
-						.map(type -> type.def().getField().get(app, type, l, parameter).build()) //
+						.map(type -> {
+							final var relayField = type.def().getField().get(app, type, l, parameter).build();
+							if (!activeConditions.isEmpty() && type == propertyToShowError) {
+								// Group errors must be visible even if this relay has not been touched.
+								relayField.add("validation",
+										JsonUtils.buildJsonObject().addProperty("show", true).build());
+							}
+							return relayField;
+						}) //
 						.collect(toJsonArray())) //
 						.hideKey();
 			});

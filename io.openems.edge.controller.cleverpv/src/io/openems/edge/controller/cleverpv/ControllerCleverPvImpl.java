@@ -138,7 +138,7 @@ public class ControllerCleverPvImpl extends AbstractOpenemsComponent
 
 		final var delay = DelayTimeProvider.Delay.of(Duration.ofSeconds(SEND_SECONDS));
 		final var delayTime = new DefaultDelayTimeProvider<HttpResponse<String>>(DelayTimeProvider.Delay::immediate,
-				t -> delay, t -> delay);
+				_ -> delay, _ -> delay);
 		final var timeService = this.httpBridge.createService(HttpBridgeTimeServiceDefinition.INSTANCE);
 
 		timeService.subscribeJsonTime(delayTime, () -> {
@@ -266,10 +266,11 @@ public class ControllerCleverPvImpl extends AbstractOpenemsComponent
 		}
 
 		if (this.isEssChargeFromGridAllowed()) {
-			final int gridConnectionPointFuseLimit = this.meta.getGridConnectionPointFuseLimit(); // Ampere
+			final int gridConnectionPointFuseLimit = this.meta.getGridLimit().fuseCurrent(); // Ampere
 			final int essMaxPower = this.ess.getPower().getMaxPower(this.ess, ALL, ACTIVE);
 			final double safetyMargin = 0.1F; // 10% less than max for safety
 
+			// TODO refactor to use GridLimit - HardLimit
 			int maxGridFeedIn = Optional
 					.of((int) Math.round(gridConnectionPointFuseLimit * (1 - safetyMargin)) * VOLT_PER_AMPERE * 3)
 					.orElse(0);

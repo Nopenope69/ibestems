@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, Input } from "@angular/core";
+import { ChangeDetectionStrategy, Component, input } from "@angular/core";
 import { Icon } from "src/app/shared/type/widget";
+import type { OeLink } from "../../oe-link/oe-link";
 
 @Component({
     selector: "oe-modal-info-line",
@@ -8,16 +9,14 @@ import { Icon } from "src/app/shared/type/widget";
     standalone: false,
 })
 export class ModalInfoLineComponent {
-    @Input({ required: true }) public info!: { text: string; lineStyle?: string }[] | string;
-    @Input() public html?: string;
-    @Input() public link?: { text: string; href: string };
+    protected readonly info = input<{ text: string; lineStyle?: string }[] | string>();
+    protected readonly html = input<string>();
+    protected readonly link = input<OeLink>();
 
     /** Icon, displayed on the left side */
-    @Input({ required: true }) protected icon!: Icon;
+    protected readonly icon = input<Icon>();
 
-    /** Info-Text, displayed on the right side, optional style for all lines Multiple lines with own style is possible */
-
-    @Input({ required: true }) protected lineStyle!: string;
-
-    @Input({ required: true }) protected rowStyle!: string;
+    protected readonly lineStyle = input<string>();
+    protected readonly rowStyle = input<string>();
+    protected readonly customClass = input<string>();
 }

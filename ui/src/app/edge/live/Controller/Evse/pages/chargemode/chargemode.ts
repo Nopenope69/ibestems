@@ -6,7 +6,10 @@ import { DataService } from "src/app/shared/components/shared/dataservice";
 import { Name } from "src/app/shared/components/shared/name";
 import { AbstractFormlyComponent, OeFormlyField, OeFormlyView, ViewContext, } from "src/app/shared/components/shared/oe-formly-component";
 import { ChannelAddress, CurrentData, Edge, EdgeConfig, Service } from "src/app/shared/shared";
+import { Language } from "src/app/shared/type/language";
 import { AssertionUtils } from "src/app/shared/utils/assertions/assertions.utils";
+import { DocsUtils } from "src/app/shared/utils/docs/docs.utils";
+import { environment } from "src/environments";
 import { EvcsChargeModeViewModel } from "../../shared/shared";
 
 @Component({
@@ -40,8 +43,9 @@ export class ChargeModeComponent extends AbstractFormlyComponent<EvcsChargeModeV
         AssertionUtils.assertIsDefined(component);
         AssertionUtils.assertIsDefined(edge);
 
-        const hasKebaComponent: boolean =
-            (edge.getCurrentConfig()?.getComponentsByFactory("Evse.ChargePoint.Keba.Modbus")?.length ?? 0) > 0;
+        const chargePoint: EdgeConfig.Component | null =
+            edge.getCurrentConfig()?.getComponentFromOtherComponentsProperty(component.id, "chargePoint.id") ?? null;
+        const isKebaP40Component: boolean = chargePoint?.factoryId === "Evse.ChargePoint.Keba.Modbus";
 
         const lines: OeFormlyField<EvcsChargeModeViewModel>[] = [
             {
@@ -81,18 +85,16 @@ export class ChargeModeComponent extends AbstractFormlyComponent<EvcsChargeModeV
             },
             {
                 type: "info-line",
-                name: [
-                    {
-                        text: translate.instant("EDGE.INDEX.WIDGETS.EVSE.KEBA_WARNING"),
-                        lineStyle: "color:#d32f2f; padding:6px 12px; border:1px solid #d32f2f; border-radius:4px;",
-                    },
-                ],
-                link: {
-                    text: translate.instant("EDGE.INDEX.WIDGETS.EVCS.LINK_TO_DOCUMENTATION"),
-                    href: "https://docs.intranet.fenecon.de/feature/how_to_restart_KEBA_P40/fenecon/de/emobility/Installationsanleitung_KEBA_P40.html#_kommunikationsausfall_zwischen_keba_p40p40_pro_und_fems",
-                },
+                html: translate.instant("EDGE.INDEX.WIDGETS.EVSE.KEBA_WARNING", {
+                    environment: environment.edgeLongName,
+                    link: DocsUtils.replaceDocsLanguage(
+                        environment.links.REDIRECT.EVCS_KEBA_HELP,
+                        Language.getDocsLang(translate.getCurrentLang()),
+                    ),
+                }),
+                customClass: "ion-border-danger ion-font-color-danger ion-font-size-larger",
                 hide: (el) =>
-                    (el.mode !== Mode.SURPLUS && el.mode !== Mode.ZERO) || component == null || !hasKebaComponent,
+                    (el.mode !== Mode.SURPLUS && el.mode !== Mode.ZERO) || component == null || !isKebaP40Component,
             },
         ];
         return {

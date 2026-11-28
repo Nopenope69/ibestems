@@ -75,7 +75,7 @@ export class EvcsHomeComponent extends AbstractFormlyComponent<SharedEvcs.EvcsVi
                 name: translate.instant("EDGE.INDEX.WIDGETS.EVCS.CHARGING_POWER"),
                 channel: component.id + "/ActivePower",
                 converter: Converter.POWER_IN_WATT,
-                filter: (value: number | null) => value != null && value !== 0,
+                filter: (value: number | null) => value != null,
             },
             {
                 type: "channel-line",
@@ -139,7 +139,12 @@ export class EvcsHomeComponent extends AbstractFormlyComponent<SharedEvcs.EvcsVi
             {
                 hide: HIDE_WHEN_CHARGING_ENABLED_OR_NOT_FORCE_CHARGE,
                 type: "channel-line",
-                name: translate.instant("EDGE.INDEX.WIDGETS.EVCS.FORCE_CHARGE_MODE.MAX_CHARGING"),
+                name: translate.instant(
+                    component.getPropertyFromComponent<number>("minHwPower") != null ||
+                        component.getPropertyFromComponent<number>("maxHwPower") != null
+                        ? "EDGE.INDEX.WIDGETS.EVCS.FORCE_CHARGE_MODE.MAX_CHARGING_PER_PHASE"
+                        : "EDGE.INDEX.WIDGETS.EVCS.FORCE_CHARGE_MODE.MAX_CHARGING",
+                ),
                 channel: ctrl.id + "/_PropertyForceChargeMinPower",
                 converter: Converter.POWER_IN_KILO_WATT,
             },
@@ -294,35 +299,35 @@ export const CONVERT_PRIORITIZATION = (translate: TranslateService): Converter =
     };
 };
 
-export const CONVERT_EVCS_STATUS = (translate: TranslateService): ((value: number | null) => string) => {
+export const CONVERT_EVCS_STATUS = (translate: TranslateService) => {
     return (value: number | null): string => {
         if (value == null) {
             return "-";
         }
 
         switch (value) {
-            case 0:
+            case SharedEvcs.ChargeState.STARTING:
                 return translate.instant("EDGE.INDEX.WIDGETS.EVCS.STARTING");
-            case -1:
-            case 4:
+            case SharedEvcs.ChargeState.UNDEFINED:
+            case SharedEvcs.ChargeState.ERROR:
                 return translate.instant("EDGE.INDEX.WIDGETS.EVCS.ERROR");
 
-            case 2:
+            case SharedEvcs.ChargeState.READY_FOR_CHARGING:
                 return translate.instant("EDGE.INDEX.WIDGETS.EVCS.READY_FOR_CHARGING");
 
-            case 1:
+            case SharedEvcs.ChargeState.NOT_READY_FOR_CHARGING:
                 return translate.instant("EDGE.INDEX.WIDGETS.EVCS.NOT_READY_FOR_CHARGING");
 
-            case 5:
+            case SharedEvcs.ChargeState.AUTHORIZATION_REJECTED:
                 return translate.instant("EDGE.INDEX.WIDGETS.EVCS.NOT_CHARGING");
 
-            case 3:
+            case SharedEvcs.ChargeState.CHARGING:
                 return translate.instant("EDGE.INDEX.WIDGETS.EVCS.CHARGING");
 
-            case 6:
+            case SharedEvcs.ChargeState.ENERGY_LIMIT_REACHED:
                 return translate.instant("EDGE.INDEX.WIDGETS.EVCS.CHARGE_LIMIT_REACHED");
 
-            case 7:
+            case SharedEvcs.ChargeState.CHARGING_FINISHED:
                 return translate.instant("EDGE.INDEX.WIDGETS.EVCS.CAR_FULL");
 
             default:

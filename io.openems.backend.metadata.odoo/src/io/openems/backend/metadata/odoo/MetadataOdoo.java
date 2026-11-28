@@ -56,6 +56,7 @@ import io.openems.backend.common.alerting.OfflineEdgeAlertingSetting;
 import io.openems.backend.common.alerting.SumStateAlertingSetting;
 import io.openems.backend.common.alerting.UserAlertingSettings;
 import io.openems.backend.common.edge.jsonrpc.UpdateMetadataCache;
+import io.openems.backend.common.jsonrpc.request.SubmitSetupProtocolRequest;
 import io.openems.backend.common.mail.MailContext;
 import io.openems.backend.common.mail.Mailer;
 import io.openems.backend.common.mail.SendMailException;
@@ -122,13 +123,13 @@ public class MetadataOdoo extends AbstractMetadata implements AppCenterMetadata,
 	private DebugExecutor refreshTokenExecutor;
 	private final ConcurrentHashMap<String, Boolean> pendingEdgeConfigIds = new ConcurrentHashMap<>();
 
-	private DebugExecutor requestExecutor;
+	protected DebugExecutor requestExecutor;
 
 	@Reference
 	private EventAdmin eventAdmin;
 
 	@Reference
-	private OpenemsBackendOem oem;
+	protected OpenemsBackendOem oem;
 
 	protected OdooHandler odooHandler = null;
 	protected PostgresHandler postgresHandler = null;
@@ -269,20 +270,12 @@ public class MetadataOdoo extends AbstractMetadata implements AppCenterMetadata,
 
 	@Override
 	public Optional<String> getEdgeIdForApikey(String apikey) {
-		var edgeOpt = this.postgresHandler.getEdgeForApikey(apikey);
-		if (edgeOpt.isPresent()) {
-			return Optional.of(edgeOpt.get().getId());
-		}
-		return Optional.empty();
+		return this.postgresHandler.getEdgeForApikey(apikey).map(Edge::getId);
 	}
 
 	@Override
 	public Optional<Edge> getEdgeBySetupPassword(String setupPassword) {
-		var optEdgeId = this.odooHandler.getEdgeIdBySetupPassword(setupPassword);
-		if (!optEdgeId.isPresent()) {
-			return Optional.empty();
-		}
-		return this.getEdge(optEdgeId.get());
+		return this.odooHandler.getEdgeIdBySetupPassword(setupPassword).flatMap(this::getEdge);
 	}
 
 	@Override
@@ -363,12 +356,25 @@ public class MetadataOdoo extends AbstractMetadata implements AppCenterMetadata,
 
 	@Override
 	public byte[] getSetupProtocol(User user, int setupProtocolId) throws OpenemsNamedException {
+		try {
+			final var edgeId = this.odooHandler.getEdgeIdForSetupProtocol(setupProtocolId);
+			this.assertRoleIsAtLeast(user, edgeId, Role.OWNER, "getSetupProtocol");
+		} catch (OpenemsNamedException e) {
+			this.log.warn("Unable to authorize setup protocol download", e);
+			throw new OpenemsException("Access to setup protocol denied");
+		}
 		return this.odooHandler.getOdooSetupProtocolReport(setupProtocolId);
 	}
 
 	@Override
 	public JsonObject getSetupProtocolData(User user, String edgeId) throws OpenemsNamedException {
 		return this.odooHandler.getSetupProtocolData(user, edgeId);
+	}
+
+	@Override
+	public void assertCanSubmitSetupProtocol(User user, JsonObject jsonObject) throws OpenemsNamedException {
+		final var edgeId = getAsString(getAsJsonObject(jsonObject, ODOO_EDGE_NAME), "id");
+		this.assertRoleIsAtLeast(user, edgeId, Role.INSTALLER, SubmitSetupProtocolRequest.METHOD);
 	}
 
 	@Override
@@ -405,13 +411,8 @@ public class MetadataOdoo extends AbstractMetadata implements AppCenterMetadata,
 			if (!(e.getMessage().contains("Unable to write to Odoo") && e.getMessage().contains("res.partner"))) {
 				throw e;
 			}
-			// Hide password before logging (see JsonrpcUtils.simplifyJsonrpcMessage)
-			final var logJson = jsonObject.deepCopy();
-			if (logJson.has("password")) {
-				logJson.addProperty("password", "HIDDEN");
-			}
 			this.log.error("[ODOO_INTERNAL_ERROR] Unable to register user: {}. Retrying... {}", //
-					e.getMessage(), logJson, e);
+					e.getMessage(), JsonUtils.hidePassword(jsonObject), e);
 			try {
 				Thread.sleep(5_000);
 			} catch (InterruptedException ex) {
@@ -481,7 +482,7 @@ public class MetadataOdoo extends AbstractMetadata implements AppCenterMetadata,
 			// Set Producttype in Odoo/Postgres
 			this.eventExecutor.submit("OnSetProducttype", () -> {
 				this.postgresHandler.edge.updateProductType(edge.getOdooId(), producttype);
-			}).whenComplete((r, t) -> {
+			}).whenComplete((_, t) -> {
 				if (t != null) {
 					this.logWarn(this.log, "Edge [" + edge.getId() + "] " //
 							+ "Unable to insert update Product Type: " + t.getMessage());
@@ -496,7 +497,7 @@ public class MetadataOdoo extends AbstractMetadata implements AppCenterMetadata,
 		this.eventExecutor.submit("LogGenericSystemLog", () -> {
 			final var edge = (MyEdge) this.getEdgeOrError(systemLog.edgeId());
 			this.postgresHandler.edge.insertGenericSystemLog(edge.getOdooId(), systemLog);
-		}).whenComplete((r, t) -> {
+		}).whenComplete((_, t) -> {
 			if (t != null) {
 				this.logWarn(this.log, "Unable to insert " + t.getMessage());
 			}
@@ -554,7 +555,7 @@ public class MetadataOdoo extends AbstractMetadata implements AppCenterMetadata,
 					.addArg(Edge.Events.OnUpdateConfig.OLD_CONFIG, oldConfig) //
 					.addArg(Edge.Events.OnUpdateConfig.NEW_CONFIG, newConfig) //
 					.send();
-		}).whenComplete((r, t) -> {
+		}).whenComplete((_, t) -> {
 			this.pendingEdgeConfigIds.remove(edge.getId());
 			if (t != null) {
 				this.logWarn(this.log, "Unable to SetConfig " + t.getMessage());
@@ -692,6 +693,7 @@ public class MetadataOdoo extends AbstractMetadata implements AppCenterMetadata,
 			"App.Cloud.Clever-PV", //
 			"App.Prediction.Weather", //
 			"App.Meter.Shelly", //
+			"App.LoadControl.BraiinsOs", //
 			"App.Evse.ElectricVehicle.Generic", //
 			"App.Tariff.Manual.EEG2025.GridSell" //
 	);
@@ -773,7 +775,7 @@ public class MetadataOdoo extends AbstractMetadata implements AppCenterMetadata,
 
 	@Override
 	public Role getUserRole(User user, String edgeId) {
-		final var userRoles = this.userRoles.computeIfAbsent(user.getId(), (userId) -> new ConcurrentHashMap<>());
+		final var userRoles = this.userRoles.computeIfAbsent(user.getId(), (_) -> new ConcurrentHashMap<>());
 
 		return userRoles.computeIfAbsent(edgeId, t -> {
 			try {
@@ -787,7 +789,7 @@ public class MetadataOdoo extends AbstractMetadata implements AppCenterMetadata,
 	}
 
 	private void setRole(User user, String edgeId, Role role) {
-		final var userRoles = this.userRoles.computeIfAbsent(user.getId(), (userId) -> new ConcurrentHashMap<>());
+		final var userRoles = this.userRoles.computeIfAbsent(user.getId(), (_) -> new ConcurrentHashMap<>());
 
 		userRoles.put(edgeId, role);
 	}
@@ -895,7 +897,10 @@ public class MetadataOdoo extends AbstractMetadata implements AppCenterMetadata,
 		// TODO create detailed debug metrics for each pool
 		final var executorMetrics = new HashMap<>(eventExecutorMetrics);
 		requestExecutorMetrics.forEach((key, value) -> {
-			executorMetrics.compute(key, (t, u) -> u == null ? value : value + u);
+			executorMetrics.compute(key, //
+					(_, u) -> u == null //
+							? value
+							: value + u);
 		});
 
 		return executorMetrics.entrySet().stream() //

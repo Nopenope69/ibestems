@@ -26,7 +26,7 @@ public final class FunctionUtils {
 	 *         {@link Function#apply(Object)} is called
 	 */
 	public static <T, R> Function<T, R> alwaysReturn(R value) {
-		return i -> value;
+		return _ -> value;
 	}
 
 	/**
@@ -41,7 +41,7 @@ public final class FunctionUtils {
 	 *         {@link ThrowingFunction#apply(Object)} is called
 	 */
 	public static <T, R, E extends Exception> ThrowingFunction<T, R, E> alwaysReturnThrowing(R value) {
-		return i -> value;
+		return _ -> value;
 	}
 
 	/**
@@ -58,7 +58,7 @@ public final class FunctionUtils {
 	 *         called
 	 */
 	public static <T, R, E extends Exception> ThrowingFunction<T, R, E> alwaysThrow(E exception) {
-		return i -> {
+		return _ -> {
 			throw exception;
 		};
 	}
@@ -118,6 +118,25 @@ public final class FunctionUtils {
 	 */
 	public static <T, U> void doNothing(T t, U e) {
 
+	}
+
+	/**
+	 * Helper method to create a {@link Supplier} that always returns {@code null}.
+	 *
+	 * <p>
+	 * Usage:
+	 *
+	 * <pre>
+	 * final Supplier&lt;String&gt; supplier = FunctionUtils::returnNothing;
+	 *
+	 * final ThrowingSupplier&lt;String, Exception&gt; supplier = FunctionUtils::returnNothing;
+	 * </pre>
+	 *
+	 * @param <T> the type of results supplied by the created supplier
+	 * @return a {@link Supplier} that always returns {@code null}
+	 */
+	public static <T> T returnNothing() {
+		return null;
 	}
 
 	/**

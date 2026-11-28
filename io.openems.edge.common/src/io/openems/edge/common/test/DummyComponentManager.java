@@ -178,21 +178,19 @@ public class DummyComponentManager implements ComponentManager, ComponentJsonApi
 			return new GetEdgeConfigResponse(call.getRequest().getId(), this.getEdgeConfig());
 		});
 
-		builder.handleRequest(new CreateComponentConfig(), endpoint -> {
-
-		}, call -> {
-			this.handleCreateComponentConfigRequest(call.get(EdgeKeys.USER_KEY), call.getRequest());
+		builder.handleRequest(new CreateComponentConfig(), call -> {
+			this.handleCreateComponentConfigRequestGuarded(call.get(EdgeKeys.USER_KEY), call.getRequest());
 			return EmptyObject.INSTANCE;
 		});
 
 		builder.handleRequest(new UpdateComponentConfig(), call -> {
-			this.handleUpdateComponentConfigRequest(call.get(EdgeKeys.USER_KEY), call.getRequest());
+			this.handleUpdateComponentConfigRequestGuarded(call.get(EdgeKeys.USER_KEY), call.getRequest());
 			return EmptyObject.INSTANCE;
 		});
 	}
 
 	@Override
-	public void handleCreateComponentConfigRequest(User user, CreateComponentConfig.Request request)
+	public void handleCreateComponentConfigRequestNonGuarded(User user, CreateComponentConfig.Request request)
 			throws OpenemsNamedException {
 		if (this.configurationAdmin == null) {
 			throw new OpenemsException("Can not create Component Config. ConfigurationAdmin is null!");
@@ -216,7 +214,7 @@ public class DummyComponentManager implements ComponentManager, ComponentJsonApi
 	}
 
 	@Override
-	public void handleUpdateComponentConfigRequest(User user, UpdateComponentConfig.Request request)
+	public void handleUpdateComponentConfigRequestNonGuarded(User user, UpdateComponentConfig.Request request)
 			throws OpenemsNamedException {
 		if (this.configurationAdmin == null) {
 			throw new OpenemsException("Can not update Component Config. ConfigurationAdmin is null!");
@@ -242,7 +240,7 @@ public class DummyComponentManager implements ComponentManager, ComponentJsonApi
 	}
 
 	@Override
-	public void handleDeleteComponentConfigRequest(User user, DeleteComponentConfig.Request request)
+	public void handleDeleteComponentConfigRequestNonGuarded(User user, DeleteComponentConfig.Request request)
 			throws OpenemsNamedException {
 		if (this.configurationAdmin == null) {
 			throw new OpenemsException("Can not delete Component Config. ConfigurationAdmin is null!");

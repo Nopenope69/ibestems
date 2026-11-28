@@ -180,7 +180,7 @@ public class PersistencePredictorAggregateTaskImpl implements PersistencePredict
 		if (predictors.size() != 1) {
 			throw new OpenemsException("Not exactly one Persistence Predictor available");
 		}
-		final var predictor = predictors.get(0);
+		final var predictor = predictors.getFirst();
 
 		final var existingChannels = getExistingPredictorChannels(predictor);
 
@@ -192,7 +192,7 @@ public class PersistencePredictorAggregateTaskImpl implements PersistencePredict
 		existingChannels.addAll(channelsToAdd);
 		existingChannels.removeAll(channelsToRemove);
 
-		componentManager.handleUpdateComponentConfigRequest(user,
+		componentManager.handleUpdateComponentConfigRequestNonGuarded(user,
 				new UpdateComponentConfig.Request(predictor.id(), List.of(//
 						new UpdateComponentConfigRequest.Property("channelAddresses", existingChannels.stream() //
 								.map(JsonPrimitive::new) //
@@ -223,7 +223,7 @@ public class PersistencePredictorAggregateTaskImpl implements PersistencePredict
 		if (persistencePredictors.size() != 1) {
 			throw new OpenemsException("Not exactly one Persistence Predictor available");
 		}
-		return persistencePredictors.get(0);
+		return persistencePredictors.getFirst();
 	}
 
 	private static List<OpenemsComponent> getPredictors(ComponentManager componentManager)
